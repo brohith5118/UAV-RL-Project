@@ -1,19 +1,69 @@
 import matplotlib.pyplot as plt
 
 
-def plot_environment(env):
+def plot_route(target_uav, tasks, best_route):
 
-    for uav in env.uavs:
-        plt.scatter(uav.x, uav.y, marker='^', s=200)
-        plt.text(uav.x, uav.y, f"UAV {uav.id}")
+    route_x = [target_uav.x] + [t.x for t in best_route]
+    route_y = [target_uav.y] + [t.y for t in best_route]
 
-    for task in env.tasks:
-        plt.scatter(task.x, task.y, marker='o')
-        plt.text(task.x, task.y, f"T{task.id}")
+    plt.figure(figsize=(10, 6))
 
-    plt.xlim(0, 100)
-    plt.ylim(0, 100)
+    plt.plot(
+        route_x,
+        route_y,
+        marker='o',
+        linestyle='-',
+        color='b',
+        alpha=0.7,
+        label='Flight Path'
+    )
 
-    plt.title("UAV Task Allocation")
+    plt.plot(
+        target_uav.x,
+        target_uav.y,
+        marker='s',
+        color='green',
+        markersize=12,
+        label='UAV Base'
+    )
+
+    for t in tasks:
+
+        if t.priority == 1:
+
+            plt.scatter(
+                t.x,
+                t.y,
+                color='red',
+                s=100,
+                zorder=5,
+                label='High Priority'
+                if 'High Priority'
+                not in plt.gca().get_legend_handles_labels()[1]
+                else ""
+            )
+
+        else:
+
+            plt.scatter(
+                t.x,
+                t.y,
+                color='orange',
+                s=50,
+                zorder=5,
+                label='Normal Priority'
+                if 'Normal Priority'
+                not in plt.gca().get_legend_handles_labels()[1]
+                else ""
+            )
+
+    plt.title("Optimized UAV Flight Sequence")
+
+    plt.xlabel("X Coordinate")
+    plt.ylabel("Y Coordinate")
+
+    plt.legend()
+
+    plt.grid(True, linestyle='--', alpha=0.5)
 
     plt.show()

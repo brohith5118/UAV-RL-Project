@@ -1,35 +1,67 @@
-from visualization import plot_environment
-from environment import Environment
-from scheduler import Scheduler
+from environment import UAVEnvironment
+
+from scheduler import assign_tasks
+from rl_agent import QLearningScheduler
+from visualization import plot_route
 
 
 def main():
 
-    env = Environment()
+    print("Creating UAV environment...")
 
-    env.generate_uavs()
-    env.generate_tasks()
-    scheduler = Scheduler(env)
+    env = UAVEnvironment()
 
-    plot_environment(env)
-    while len(env.tasks) != 0:
+    tasks, uavs = env.reset()
 
-        scheduler.assign_tasks()
+    print(f"Generated {len(tasks)} tasks")
+    print(f"Generated {len(uavs)} UAVs")
 
-        print("\nTASK ASSIGNMENTS\n")
+    print("\nAssigning tasks to UAVs...")
 
-        for uav in env.uavs:
-            print(f"UAV {uav.id}")
-            print(f"Battery Left: {uav.battery:.2f}")
+    assign_tasks(tasks, uavs)
 
-            task_ids = [task.id for task in uav.tasks]
+    print("\n--- Final Drone Assignments ---")
 
-            print(f"Assigned Tasks: {task_ids}")
-            print()
-        scheduler.complete_one_task()
-        plot_environment(env)
+    for uav in uavs:
 
+        print(
+            f"UAV {uav.uav_id} "
+            f"-> {len(uav.assigned_tasks)} tasks"
+        )
 
+    # Select UAV with most tasks
+    target_uav = max(
+        uavs,
+        key=lambda u: len(u.assigned_tasks)
+    )
+
+    print(
+        f"\nSelected UAV {target_uav.uav_id} "
+        f"for route optimization"
+    )
+
+    if len(target_uav.assigned_tasks) == 0:
+
+        print("No tasks assigned.")
+        return
+
+    print("\nTraining RL agent...")
+
+    agent = QLearningScheduler(
+        target_uav.assigned_tasks
+    )
+
+    agent.train()
+
+    best_route = agent.get_best_route()
+
+    print("Training complete!")
+
+    plot_route(
+        target_uav,
+        target_uav.assigned_tasks,
+        best_route
+    )
 
 
 if __name__ == "__main__":

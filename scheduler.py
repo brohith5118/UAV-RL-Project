@@ -1,60 +1,71 @@
-from utils import euclidean_distance
-from config import ENERGY_PER_DISTANCE
+import math
+
+from config import ALPHA, GAMMA, RHO, ITERATIONS
 
 
-class Scheduler:
-    def __init__(self, env):
-        self.env = env
-        self.completed_tasks = []
-    
+def assign_tasks(task_list, uavs):
 
-    def assign_tasks(self):
-        for uav in self.env.uavs:
-            uav.tasks = []
+    for step in range(ITERATIONS):
 
-        for task in self.env.tasks:
+        for uav in uavs:
+            uav.clear_tasks()
 
+        for task in task_list:
+
+            best_cost = float('inf')
             best_uav = None
-            best_distance = float('inf')
 
-            for uav in self.env.uavs:
-                dist = euclidean_distance(
-                    uav.position(),
-                    task.position()
+            for uav in uavs:
+
+                distance = math.hypot(
+                    uav.x - task.x,
+                    uav.y - task.y
                 )
 
-                if dist < best_distance:
-                    best_distance = dist
+                penalty = (
+                    uav.penalty_energy * task.compute_workload
+                    +
+                    uav.penalty_compute * task.compute_workload
+                )
+                
+                load_factor = len(uav.assigned_tasks) * 2
+
+                cost = (
+                    (ALPHA * distance)
+                    -
+                    (GAMMA * task.priority)
+                    +
+                    penalty
+                    +
+                    load_factor
+                )
+
+                if cost < best_cost:
+                    best_cost = cost
                     best_uav = uav
 
-            energy_cost = best_distance * ENERGY_PER_DISTANCE
+            best_uav.assigned_tasks.append(task)
 
-            if best_uav.battery > energy_cost:
-                best_uav.assign_task(task)
+        for uav in uavs:
 
-    def complete_one_task(self):
-        for uav in self.env.uavs:
-            if len(uav.tasks) != 0:
-                task = uav.tasks[0]
-                
-                dist = euclidean_distance(
-                    uav.position(),
-                    task.position()
-                )
+            total_energy_used = sum(
+                t.compute_workload
+                for t in uav.assigned_tasks
+            )
 
-                energy_cost = dist * ENERGY_PER_DISTANCE
+            total_compute_used = sum(
+                t.compute_workload
+                for t in uav.assigned_tasks
+            )
 
-                uav.move_to(
-                    task.x,
-                    task.y,
-                    energy_cost
-                )
+            uav.penalty_energy = max(
+                0.0,
+                uav.penalty_energy
+                + RHO * (total_energy_used - uav.max_energy)
+            )
 
-                task.completed = True
-                print(f"UAV {uav.id} completed task {task.id}")
-
-                if task in self.env.tasks:
-                    self.env.tasks.remove(task)
-                uav.tasks.remove(task)
-                self.completed_tasks.append(task)
-
+            uav.penalty_compute = max(
+                0.0,
+                uav.penalty_compute
+                + RHO * (total_compute_used - uav.max_compute)
+            )

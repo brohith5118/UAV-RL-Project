@@ -1,18 +1,15 @@
 class UAV:
-    def __init__(self, uav_id, x, y, battery):
-        self.id = uav_id
+    def __init__(self, uav_id, x, y, max_energy, max_compute):
+        self.uav_id = uav_id
         self.x = x
         self.y = y
-        self.battery = battery
-        self.tasks = []
+        self.max_energy = max_energy
+        self.max_compute = max_compute
 
-    def position(self):
-        return (self.x, self.y)
+        self.penalty_energy = 0.0
+        self.penalty_compute = 0.0
 
-    def assign_task(self, task):
-        self.tasks.append(task)
+        self.assigned_tasks = []
 
-    def move_to(self, x, y, energy_cost):
-        self.x = x
-        self.y = y
-        self.battery -= energy_cost
+    def clear_tasks(self):
+        self.assigned_tasks = []

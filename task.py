@@ -1,10 +1,15 @@
 class Task:
-    def __init__(self, task_id, x, y, priority):
-        self.id = task_id
+    def __init__(self, task_id, x, y, priority, compute_workload):
+        self.task_id = task_id
         self.x = x
         self.y = y
         self.priority = priority
-        self.completed = False
+        self.compute_workload = compute_workload
 
-    def position(self):
-        return (self.x, self.y)
+    def __repr__(self):
+        return (
+            f"Task {self.task_id}: "
+            f"Loc({self.x},{self.y}) | "
+            f"Pri: {self.priority} | "
+            f"Load: {self.compute_workload}"
+        )
