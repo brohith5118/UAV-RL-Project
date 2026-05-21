@@ -2,22 +2,35 @@ import math
 
 
 def euclidean_distance(x1, y1, x2, y2):
+
     return math.hypot(x1 - x2, y1 - y2)
 
 
-def calculate_reward(current_task, next_task):
+# RL trajectory reward
+# Higher priority + lower movement cost
+
+def calculate_reward(current_position, next_task):
+
     dist = euclidean_distance(
-        current_task.x,
-        current_task.y,
+        current_position[0],
+        current_position[1],
         next_task.x,
         next_task.y
     )
 
-    if dist == 0:
-        dist = 0.1
+    priority_reward = (
+        120 if next_task.priority == 1 else 40
+    )
 
-    distance_score = 100.0 / dist
+    movement_penalty = dist * 2
 
-    priority_score = 50.0 if next_task.priority == 1 else 10.0
+    hover_penalty = next_task.hover_time * 0.5
 
-    return distance_score + priority_score
+    compute_penalty = next_task.compute_load * 0.1
+
+    return (
+        priority_reward
+        - movement_penalty
+        - hover_penalty
+        - compute_penalty
+    )

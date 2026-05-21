@@ -1,68 +1,158 @@
-from environment import UAVEnvironment
+from environment import (
+    generate_tasks,
+    generate_uavs
+)
 
 from scheduler import assign_tasks
-from rl_agent import QLearningScheduler
-from visualization import plot_route
+
+from rl_agent import (
+    QLearningTrajectoryPlanner
+)
+
+from visualization import (
+    plot_all_routes
+)
+
+from config import (
+    NUM_TASKS,
+    HIGH_PRIORITY_RATIO
+)
 
 
 def main():
 
-    print("Creating UAV environment...")
+    # GENERATE TASKS
 
-    env = UAVEnvironment()
+    print(
+        "Generating remote sensing tasks..."
+    )
 
-    tasks, uavs = env.reset()
-
-    print(f"Generated {len(tasks)} tasks")
-    print(f"Generated {len(uavs)} UAVs")
-
-    print("\nAssigning tasks to UAVs...")
-
-    assign_tasks(tasks, uavs)
-
-    print("\n--- Final Drone Assignments ---")
-
-    for uav in uavs:
-
-        print(
-            f"UAV {uav.uav_id} "
-            f"-> {len(uav.assigned_tasks)} tasks"
-        )
-
-    # Select UAV with most tasks
-    target_uav = max(
-        uavs,
-        key=lambda u: len(u.assigned_tasks)
+    tasks = generate_tasks(
+        NUM_TASKS,
+        HIGH_PRIORITY_RATIO
     )
 
     print(
-        f"\nSelected UAV {target_uav.uav_id} "
-        f"for route optimization"
+        f"Generated {len(tasks)} tasks"
     )
 
-    if len(target_uav.assigned_tasks) == 0:
+    # GENERATE UAVS
 
-        print("No tasks assigned.")
-        return
-
-    print("\nTraining RL agent...")
-
-    agent = QLearningScheduler(
-        target_uav.assigned_tasks
+    print(
+        "\nGenerating heterogeneous UAV fleet..."
     )
 
-    agent.train()
+    uavs = generate_uavs()
 
-    best_route = agent.get_best_route()
+    print(
+        f"Generated {len(uavs)} UAVs"
+    )
 
-    print("Training complete!")
+    # CAPACITY-CONSTRAINED PARTITIONING
 
-    plot_route(
-        target_uav,
-        target_uav.assigned_tasks,
-        best_route
+    print(
+        "\nRunning region partitioning..."
+    )
+
+    assign_tasks(tasks, uavs)
+
+    # DISPLAY FINAL PARTITIONS
+
+    print(
+        "\n=== FINAL REGION PARTITIONS ==="
+    )
+
+    for uav in uavs:
+
+        total_energy = sum(
+            t.energy_cost
+            for t in uav.assigned_tasks
+        )
+
+        total_hover = sum(
+            t.hover_time
+            for t in uav.assigned_tasks
+        )
+
+        total_compute = sum(
+            t.compute_load
+            for t in uav.assigned_tasks
+        )
+
+        print(
+            f"\nUAV {uav.uav_id}"
+        )
+
+        print(
+            f"Assigned Tasks: "
+            f"{len(uav.assigned_tasks)}"
+        )
+
+        print(
+            f"Energy Usage: "
+            f"{total_energy:.2f}/"
+            f"{uav.max_energy:.2f}"
+        )
+
+        print(
+            f"Hover Usage: "
+            f"{total_hover:.2f}/"
+            f"{uav.max_hover_time:.2f}"
+        )
+
+        print(
+            f"Compute Usage: "
+            f"{total_compute:.2f}/"
+            f"{uav.max_compute:.2f}"
+        )
+
+    # RL TRAJECTORY OPTIMIZATION
+
+    print(
+        "\nRunning RL trajectory optimization..."
+    )
+
+    all_routes = {}
+
+    for uav in uavs:
+
+        if len(uav.assigned_tasks) == 0:
+
+            print(
+                f"UAV {uav.uav_id} "
+                f"has no assigned tasks."
+            )
+
+            all_routes[uav.uav_id] = []
+
+            continue
+
+        print(
+            f"Training RL planner for "
+            f"UAV {uav.uav_id}..."
+        )
+
+        planner = QLearningTrajectoryPlanner(
+            uav,
+            uav.assigned_tasks
+        )
+
+        planner.train()
+
+        best_route = planner.get_best_route()
+
+        all_routes[uav.uav_id] = best_route
+
+    print(
+        "\nTrajectory optimization complete."
     )
 
 
-if __name__ == "__main__":
+    plot_all_routes(
+        uavs,
+        all_routes
+    )
+
+
+if __name__ == '__main__':
     main()

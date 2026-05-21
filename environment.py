@@ -6,97 +6,84 @@ from uav import UAV
 from config import (
     MAP_WIDTH,
     MAP_HEIGHT,
-
-    NUM_TASKS,
-    HIGH_PRIORITY_RATIO,
-
     NUM_UAVS,
-
     MIN_ENERGY,
     MAX_ENERGY,
-
+    MIN_HOVER_TIME,
+    MAX_HOVER_TIME,
     MIN_COMPUTE,
     MAX_COMPUTE
 )
 
+def generate_tasks(
+    num_tasks,
+    high_priority_ratio
+):
 
-class UAVEnvironment:
+    task_list = []
 
-    def __init__(self):
+    for task_id in range(num_tasks):
 
-        self.tasks = []
-        self.uavs = []
+        x = random.randint(0, MAP_WIDTH - 1)
+        y = random.randint(0, MAP_HEIGHT - 1)
 
-    # ======================================
-    # RANDOM TASK GENERATION
-    # ======================================
+        if random.random() < high_priority_ratio:
+            priority = 1
+        else:
+            priority = 2
 
-    def generate_tasks(self):
+        energy_cost = random.uniform(5, 20)
+        hover_time = random.uniform(3, 10)
+        compute_load = random.uniform(10, 30)
 
-        self.tasks = []
+        task = Task(
+            task_id,
+            x,
+            y,
+            priority,
+            energy_cost,
+            hover_time,
+            compute_load
+        )
 
-        for task_id in range(NUM_TASKS):
+        task_list.append(task)
 
-            x = random.randint(0, MAP_WIDTH - 1)
-            y = random.randint(0, MAP_HEIGHT - 1)
+    return task_list
 
-            if random.random() < HIGH_PRIORITY_RATIO:
-                priority = 1
-                workload = 15.0
-            else:
-                priority = 2
-                workload = 10.0
 
-            task = Task(
-                task_id,
-                x,
-                y,
-                priority,
-                workload
-            )
+def generate_uavs():
 
-            self.tasks.append(task)
+    uavs = []
 
-    # ======================================
-    # RANDOM UAV GENERATION
-    # ======================================
+    for uav_id in range(NUM_UAVS):
 
-    def generate_uavs(self):
+        x = random.randint(0, MAP_WIDTH - 1)
+        y = random.randint(0, MAP_HEIGHT - 1)
 
-        self.uavs = []
+        max_energy = random.uniform(
+            MIN_ENERGY,
+            MAX_ENERGY
+        )
 
-        for uav_id in range(NUM_UAVS):
+        max_hover = random.uniform(
+            MIN_HOVER_TIME,
+            MAX_HOVER_TIME
+        )
 
-            x = random.randint(0, MAP_WIDTH - 1)
-            y = random.randint(0, MAP_HEIGHT - 1)
+        max_compute = random.uniform(
+            MIN_COMPUTE,
+            MAX_COMPUTE
+        )
 
-            max_energy = random.randint(
-                MIN_ENERGY,
-                MAX_ENERGY
-            )
+        uav = UAV(
+            uav_id,
+            x,
+            y,
+            max_energy,
+            max_hover,
+            max_compute
+        )
 
-            max_compute = random.randint(
-                MIN_COMPUTE,
-                MAX_COMPUTE
-            )
+        uavs.append(uav)
 
-            uav = UAV(
-                uav_id=uav_id,
-                x=x,
-                y=y,
-                max_energy=max_energy,
-                max_compute=max_compute
-            )
-
-            self.uavs.append(uav)
-
-    # ======================================
-    # INITIALIZE FULL ENVIRONMENT
-    # ======================================
-
-    def reset(self):
-
-        self.generate_tasks()
-        self.generate_uavs()
-
-        return self.tasks, self.uavs
+    return uavs
