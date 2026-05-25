@@ -1,273 +1,279 @@
+# =========================================================
+# SCHEDULER  –  D-MODULE
+# =========================================================
+
 import math
 
 from config import (
     ALPHA,
     GAMMA,
     RHO,
+    LAMBDA_TV,
     ITERATIONS,
-    LAMBDA_TV
+    ENERGY_PER_METER,
+    UAV_SPEED,
+    MAP_WIDTH,
+    MAP_HEIGHT,
 )
 
 
-# =========================================================
-# CAPACITY FEASIBILITY CHECK
-#
-# Enforces Equation (5):
-#
-# Σ ω_k,i x_ui <= C_u,k
-#
-# =========================================================
+# ----------------------------------------------------------
+# DISTANCE HELPERS
+# ----------------------------------------------------------
+
+def euclidean(x1, y1, x2, y2):
+    return math.hypot(x1 - x2, y1 - y2)
+
+
+# ----------------------------------------------------------
+# SEQUENTIAL ROUTE RESOURCE ESTIMATION
+# ----------------------------------------------------------
+
+def estimate_route_cost(uav, tasks):
+
+    prev_x = uav.x
+    prev_y = uav.y
+
+    total_energy = 0.0
+    total_hover = 0.0
+    total_compute = 0.0
+
+    for task in tasks:
+
+        dist = euclidean(prev_x, prev_y, task.x, task.y)
+
+        travel_energy = dist * ENERGY_PER_METER
+        travel_time = dist / UAV_SPEED
+
+        total_energy += task.energy_cost + travel_energy
+        total_hover += task.hover_time + travel_time
+        total_compute += task.compute_load
+
+        prev_x = task.x
+        prev_y = task.y
+
+    return total_energy, total_hover, total_compute
+
+
+# ----------------------------------------------------------
+# REGION CENTROID UPDATE
+# ----------------------------------------------------------
+
+def update_region_centroids(uavs):
+
+    for uav in uavs:
+
+        if not uav.assigned_tasks:
+            continue
+
+        n = len(uav.assigned_tasks)
+
+        uav.region_x = (
+            sum(t.x for t in uav.assigned_tasks) / n
+        )
+
+        uav.region_y = (
+            sum(t.y for t in uav.assigned_tasks) / n
+        )
+
+
+# ----------------------------------------------------------
+# FEASIBILITY CHECK
+# ----------------------------------------------------------
 
 def is_feasible(uav, task):
 
-    current_energy = sum(
-        t.energy_cost
-        for t in uav.assigned_tasks
+    if not uav.is_compatible(task):
+        return False
+
+    tentative_tasks = uav.assigned_tasks + [task]
+
+    total_energy, total_hover, total_compute = (
+        estimate_route_cost(uav, tentative_tasks)
     )
 
-    current_hover = sum(
-        t.hover_time
-        for t in uav.assigned_tasks
-    )
+    if total_energy > uav.max_energy:
+        return False
 
-    current_compute = sum(
-        t.compute_load
-        for t in uav.assigned_tasks
-    )
+    if total_hover > uav.max_hover_time:
+        return False
 
-    energy_ok = (
-        current_energy
-        + task.energy_cost
-        <= uav.max_energy
-    )
+    if total_compute > uav.max_compute:
+        return False
 
-    hover_ok = (
-        current_hover
-        + task.hover_time
-        <= uav.max_hover_time
-    )
-
-    compute_ok = (
-        current_compute
-        + task.compute_load
-        <= uav.max_compute
-    )
-
-    return (
-        energy_ok
-        and hover_ok
-        and compute_ok
-    )
+    return True
 
 
-# =========================================================
+# ----------------------------------------------------------
 # GENERALIZED COST FUNCTION
-#
-# Equation (7):
-#
-# δ_ui =
-# α d(p_u(t), g_i)
-# - γ w_pri_i
-# + Σ μ_u,k ω_k,i
-#
-# =========================================================
+# ----------------------------------------------------------
 
-def generalized_cost(uav, task):
+def generalized_cost(uav, task, avg_tasks):
 
-    # ---------------------------------------------
-    # DISTANCE TERM
-    # ---------------------------------------------
-
-    distance = math.hypot(
-        uav.x - task.x,
-        uav.y - task.y
+    distance = euclidean(
+        uav.region_x,
+        uav.region_y,
+        task.x,
+        task.y
     )
 
-    # ---------------------------------------------
-    # PRIORITY TERM
-    #
-    # Higher priority should reduce cost
-    # ---------------------------------------------
+    # NORMALIZED DISTANCE
+    map_diag = math.hypot(MAP_WIDTH, MAP_HEIGHT)
+    norm_distance = distance / map_diag
 
-    if task.priority == 1:
-        priority_weight = 100
-    else:
-        priority_weight = 20
+    # NORMALIZED PRIORITY
+    priority_reward = {
+        1: 1.0,
+        2: 0.6,
+        3: 0.2
+    }[task.priority]
 
-    # ---------------------------------------------
-    # LAGRANGE MULTIPLIER PENALTIES
-    #
-    # μ_u,k ω_k,i
-    # ---------------------------------------------
+    load_ratio = (len(uav.assigned_tasks) / max(avg_tasks, 1))
 
+    load_penalty = load_ratio ** 2
+
+    total_energy, total_hover, total_compute = (
+        estimate_route_cost(
+            uav,
+            uav.assigned_tasks
+        )
+    )
+
+    energy_ratio = total_energy / max(uav.max_energy, 1)
+
+    hover_ratio = total_hover / max(uav.max_hover_time, 1)
+
+    compute_ratio = (
+        total_compute / max(uav.max_compute, 1)
+        if uav.max_compute > 0
+        else 0
+    )
+
+    resource_penalty = (
+        energy_ratio
+        + hover_ratio
+        + compute_ratio
+    )
+
+    # LAGRANGE PENALTY
     lagrange_penalty = (
-
-        uav.mu_energy
-        * task.energy_cost
-
-        +
-
-        uav.mu_hover
-        * task.hover_time
-
-        +
-
-        uav.mu_compute
-        * task.compute_load
+        uav.mu_energy * energy_ratio
+        + uav.mu_hover * hover_ratio
+        + uav.mu_compute * compute_ratio
     )
 
-    # ---------------------------------------------
-    # FINAL GENERALIZED COST
-    # ---------------------------------------------
 
     total_cost = (
-
-        ALPHA * distance
-
-        -
-
-        GAMMA * priority_weight
-
-        +
-
-        lagrange_penalty
+        ALPHA * norm_distance
+        + 2.0 * load_penalty
+        + 2.0 * resource_penalty
+        + lagrange_penalty
+        - GAMMA * priority_reward
     )
 
     return total_cost
 
 
-# =========================================================
-# TV REGULARIZATION APPROXIMATION
-#
-# Encourages spatially compact regions
-#
-# λTV Σ |x_ui - x_uj|
-#
-# Approximated using distance to region centroid
-# =========================================================
+# ----------------------------------------------------------
+# TV REGULARIZATION
+# ----------------------------------------------------------
 
 def compactness_penalty(uav, task):
 
-    # First task has no penalty
+    if not uav.assigned_tasks:
+        return 0.0
 
-    if len(uav.assigned_tasks) == 0:
-        return 0
+    n = len(uav.assigned_tasks)
 
-    centroid_x = sum(
-        t.x for t in uav.assigned_tasks
-    ) / len(uav.assigned_tasks)
+    cx = sum(t.x for t in uav.assigned_tasks) / n
+    cy = sum(t.y for t in uav.assigned_tasks) / n
 
-    centroid_y = sum(
-        t.y for t in uav.assigned_tasks
-    ) / len(uav.assigned_tasks)
-
-    centroid_distance = math.hypot(
-        task.x - centroid_x,
-        task.y - centroid_y
+    centroid_dist = euclidean(
+        task.x,
+        task.y,
+        cx,
+        cy
     )
 
-    return (
-        LAMBDA_TV
-        * centroid_distance
-    )
+    return LAMBDA_TV * centroid_dist
 
 
-# =========================================================
+# ----------------------------------------------------------
 # LAGRANGE MULTIPLIER UPDATE
-#
-# Equation (8):
-#
-# μ_u,k ←
-# [ μ_u,k + ρ(usage - capacity) ]+
-#
-# =========================================================
+# ----------------------------------------------------------
 
 def update_lagrange_multipliers(uav):
 
-    total_energy = sum(
-        t.energy_cost
-        for t in uav.assigned_tasks
+    total_energy, total_hover, total_compute = (
+        estimate_route_cost(
+            uav,
+            uav.assigned_tasks
+        )
     )
-
-    total_hover = sum(
-        t.hover_time
-        for t in uav.assigned_tasks
-    )
-
-    total_compute = sum(
-        t.compute_load
-        for t in uav.assigned_tasks
-    )
-
-    # ---------------------------------------------
-    # ENERGY MULTIPLIER
-    # ---------------------------------------------
 
     uav.mu_energy = max(
-
         0.0,
-
-        uav.mu_energy
-        +
-        RHO * (
-            total_energy
-            - uav.max_energy
-        )
+        uav.mu_energy +
+        RHO * (total_energy - uav.max_energy)
     )
-
-    # ---------------------------------------------
-    # HOVER MULTIPLIER
-    # ---------------------------------------------
 
     uav.mu_hover = max(
-
         0.0,
-
-        uav.mu_hover
-        +
-        RHO * (
-            total_hover
-            - uav.max_hover_time
-        )
+        uav.mu_hover +
+        RHO * (total_hover - uav.max_hover_time)
     )
-
-    # ---------------------------------------------
-    # COMPUTE MULTIPLIER
-    # ---------------------------------------------
 
     uav.mu_compute = max(
-
         0.0,
-
-        uav.mu_compute
-        +
-        RHO * (
-            total_compute
-            - uav.max_compute
-        )
+        uav.mu_compute +
+        RHO * (total_compute - uav.max_compute)
     )
 
 
-# =========================================================
-# CAPACITY-CONSTRAINED REGION PARTITIONING
-#
-# Solves:
-#
-# min Σ δ_ui x_ui
-# + λTV compactness
-#
-# subject to:
-#
-# Σ ω_k,i x_ui <= C_u,k
-#
-# =========================================================
+# ----------------------------------------------------------
+# GREEDY WARM START ROUTE
+# ----------------------------------------------------------
+
+def nearest_neighbor_order(uav):
+
+    if not uav.assigned_tasks:
+        return
+
+    remaining = uav.assigned_tasks[:]
+    ordered = []
+
+    current_x = uav.x
+    current_y = uav.y
+
+    while remaining:
+
+        nearest = min(
+            remaining,
+            key=lambda t: euclidean(
+                current_x,
+                current_y,
+                t.x,
+                t.y
+            )
+        )
+
+        ordered.append(nearest)
+
+        current_x = nearest.x
+        current_y = nearest.y
+
+        remaining.remove(nearest)
+
+    uav.assigned_tasks = ordered
+
+
+# ----------------------------------------------------------
+# MAIN PARTITIONING ALGORITHM
+# ----------------------------------------------------------
 
 def assign_tasks(task_list, uavs):
 
-    # =====================================================
-    # INITIALIZATION
-    # =====================================================
-
+    # INITIAL RESET ONLY ONCE
     for uav in uavs:
 
         uav.clear_tasks()
@@ -276,69 +282,60 @@ def assign_tasks(task_list, uavs):
         uav.mu_hover = 0.0
         uav.mu_compute = 0.0
 
-    # =====================================================
-    # ITERATIVE POWER-DIAGRAM OPTIMIZATION
-    # =====================================================
+        uav.region_x = uav.x
+        uav.region_y = uav.y
+
+    sorted_tasks = sorted(
+        task_list,
+        key=lambda t: (
+            t.priority,
+            -(t.energy_cost +
+              t.hover_time +
+              t.compute_load)
+        )
+    )
+
+    unassigned_tasks = []
 
     for iteration in range(ITERATIONS):
 
-        # Clear assignments for reassignment
+        # STORE OLD ASSIGNMENTS
+        old_assignments = {
+            u.uav_id: set(
+                t.task_id for t in u.assigned_tasks
+            )
+            for u in uavs
+        }
 
+        # CLEAR FOR REFINEMENT
         for uav in uavs:
             uav.clear_tasks()
 
-        # -------------------------------------------------
-        # SORT TASKS BY PRIORITY
-        #
-        # High-priority tasks allocated first
-        # -------------------------------------------------
-
-        sorted_tasks = sorted(
-
-            task_list,
-
-            key=lambda t: (
-                t.priority,
-                -(t.energy_cost
-                  + t.hover_time
-                  + t.compute_load)
-            )
-        )
-
-        # =================================================
-        # TASK ASSIGNMENT
-        # =================================================
-
         unassigned_tasks = []
 
+        avg_tasks = (
+            len(task_list) / len(uavs)
+            if uavs else 1
+        )
+
+        # ASSIGN TASKS
         for task in sorted_tasks:
 
             feasible_candidates = []
 
-            # ---------------------------------------------
-            # FIND FEASIBLE UAVS
-            # ---------------------------------------------
-
             for uav in uavs:
 
-                if not is_feasible(
-                    uav,
-                    task
-                ):
+                if not uav.active:
                     continue
 
-                # -----------------------------------------
-                # Compute generalized cost
-                # -----------------------------------------
+                if not is_feasible(uav, task):
+                    continue
 
                 cost = generalized_cost(
                     uav,
-                    task
+                    task,
+                    avg_tasks
                 )
-
-                # -----------------------------------------
-                # TV regularization
-                # -----------------------------------------
 
                 cost += compactness_penalty(
                     uav,
@@ -349,57 +346,81 @@ def assign_tasks(task_list, uavs):
                     (cost, uav)
                 )
 
-            # ---------------------------------------------
-            # ASSIGN TO MINIMUM COST UAV
-            # ---------------------------------------------
-
             if feasible_candidates:
 
                 feasible_candidates.sort(
                     key=lambda x: x[0]
                 )
 
-                selected_uav = feasible_candidates[0][1]
+                best_uav = feasible_candidates[0][1]
 
-                selected_uav.assigned_tasks.append(
-                    task
-                )
+                best_uav.assigned_tasks.append(task)
 
             else:
-
                 unassigned_tasks.append(task)
 
-        # =================================================
+        # UPDATE CENTROIDS ONCE PER ITERATION
+        update_region_centroids(uavs)
+
         # UPDATE LAGRANGE MULTIPLIERS
-        # =================================================
+        for uav in uavs:
+            update_lagrange_multipliers(uav)
+
+        # CONVERGENCE CHECK
+        converged = True
 
         for uav in uavs:
 
-            update_lagrange_multipliers(
-                uav
+            new_set = set(
+                t.task_id
+                for t in uav.assigned_tasks
             )
 
-    # =====================================================
-    # FINAL REPORT
-    # =====================================================
+            if new_set != old_assignments[uav.uav_id]:
+                converged = False
+                break
+
+        if converged:
+            print(
+                f"[D-Module] Converged "
+                f"after {iteration+1} iterations"
+            )
+            break
+
+    # GREEDY ROUTE INITIALIZATION
+    for uav in uavs:
+        nearest_neighbor_order(uav)
+
+    _print_partitioning_summary(
+        uavs,
+        unassigned_tasks
+    )
+
+    return uavs, unassigned_tasks
+
+
+# ----------------------------------------------------------
+# PARTITIONING SUMMARY
+# ----------------------------------------------------------
+
+def _print_partitioning_summary(
+    uavs,
+    unassigned
+):
 
     print("\n=== PARTITIONING SUMMARY ===")
 
     for uav in uavs:
 
-        total_energy = sum(
-            t.energy_cost
-            for t in uav.assigned_tasks
+        te, th, tf = estimate_route_cost(
+            uav,
+            uav.assigned_tasks
         )
 
-        total_hover = sum(
-            t.hover_time
+        hp = sum(
+            1
             for t in uav.assigned_tasks
-        )
-
-        total_compute = sum(
-            t.compute_load
-            for t in uav.assigned_tasks
+            if t.priority == 1
         )
 
         print(
@@ -411,21 +432,29 @@ def assign_tasks(task_list, uavs):
         )
 
         print(
+            f"High Priority: {hp}"
+        )
+
+        print(
             f"Energy: "
-            f"{total_energy:.2f}/"
-            f"{uav.max_energy:.2f}"
+            f"{te:.2f}/{uav.max_energy:.2f}"
         )
 
         print(
             f"Hover: "
-            f"{total_hover:.2f}/"
-            f"{uav.max_hover_time:.2f}"
+            f"{th:.2f}/{uav.max_hover_time:.2f}"
         )
 
         print(
             f"Compute: "
-            f"{total_compute:.2f}/"
-            f"{uav.max_compute:.2f}"
+            f"{tf:.2f}/{uav.max_compute:.2f}"
         )
 
-    return uavs
+    if unassigned:
+
+        print(
+            f"\nUnassigned Tasks: "
+            f"{len(unassigned)}"
+        )
+
+    print()
