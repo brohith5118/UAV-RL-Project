@@ -394,7 +394,7 @@ def plot_deadline_compliance(ax, uavs, routes):
 # INDIVIDUAL SPATIAL FIGURES
 # ----------------------------------------------------------
 
-def plot_demand_map_figure(demand_map, tasks):
+def plot_demand_map_figure(demand_map, tasks, save_dir=None, prefix=""):
     """Standalone figure: sensing-demand heatmap."""
     fig, ax = plt.subplots(figsize=(8, 7))
     fig.suptitle(
@@ -403,10 +403,16 @@ def plot_demand_map_figure(demand_map, tasks):
     )
     plot_demand_map(ax, demand_map, tasks)
     plt.tight_layout()
-    plt.show()
+    if save_dir:
+        import os
+        path = os.path.join(save_dir, f"{prefix}demand_map.png")
+        plt.savefig(path, dpi=150)
+        plt.close()
+    else:
+        plt.show()
 
 
-def plot_region_partition_figure(uavs, tasks, demand_map):
+def plot_region_partition_figure(uavs, tasks, demand_map, save_dir=None, prefix=""):
     """Standalone figure: capacity-constrained region partition."""
     fig, ax = plt.subplots(figsize=(8, 7))
     fig.suptitle(
@@ -416,10 +422,16 @@ def plot_region_partition_figure(uavs, tasks, demand_map):
     )
     plot_region_partition(ax, uavs, tasks, demand_map)
     plt.tight_layout()
-    plt.show()
+    if save_dir:
+        import os
+        path = os.path.join(save_dir, f"{prefix}region_partition.png")
+        plt.savefig(path, dpi=150)
+        plt.close()
+    else:
+        plt.show()
 
 
-def plot_trajectories_figure(uavs, routes, demand_map):
+def plot_trajectories_figure(uavs, routes, demand_map, save_dir=None, prefix=""):
     """Standalone figure: RL-optimised UAV trajectories."""
     fig, ax = plt.subplots(figsize=(8, 7))
     fig.suptitle(
@@ -429,14 +441,20 @@ def plot_trajectories_figure(uavs, routes, demand_map):
     )
     plot_trajectories(ax, uavs, routes, demand_map)
     plt.tight_layout()
-    plt.show()
+    if save_dir:
+        import os
+        path = os.path.join(save_dir, f"{prefix}trajectories.png")
+        plt.savefig(path, dpi=150)
+        plt.close()
+    else:
+        plt.show()
 
 
 # ----------------------------------------------------------
 # MASTER PLOT FUNCTION
 # ----------------------------------------------------------
 
-def plot_all(uavs, routes, tasks, demand_map):
+def plot_all(uavs, routes, tasks, demand_map, save_dir=None, prefix=""):
     """
     Render results across four separate figures:
       Figure 1  – Sensing-demand heatmap
@@ -447,42 +465,82 @@ def plot_all(uavs, routes, tasks, demand_map):
     """
 
     # ---- Figure 1: Demand map ----
-    plot_demand_map_figure(demand_map, tasks)
+    plot_demand_map_figure(demand_map, tasks, save_dir=save_dir, prefix=prefix)
 
     # ---- Figure 2: Region partition ---- #
-    plot_region_partition_figure(uavs, tasks, demand_map)
+    plot_region_partition_figure(uavs, tasks, demand_map, save_dir=save_dir, prefix=prefix)
 
     # ---- Figure 3: Trajectories ----
-    plot_trajectories_figure(uavs, routes, demand_map)
+    plot_trajectories_figure(uavs, routes, demand_map, save_dir=save_dir, prefix=prefix)
 
     # ---- Figure 4: Analytics dashboard ----
     fig = plt.figure(figsize=(18, 10))
+    active_uavs = [u for u in uavs if u.active]
+    x_i = [len(u.assigned_tasks) for u in active_uavs]
+    if x_i and sum(x_i) > 0:
+        n_active = len(x_i)
+        jains_index = (sum(x_i) ** 2) / (n_active * sum(val ** 2 for val in x_i))
+    else:
+        jains_index = 0.0
+
     fig.suptitle(
-        'DMMP-PR-TSA: Mission Analytics Dashboard',
+        f"DMMP-PR-TSA: Mission Analytics Dashboard (Jain's Fairness Index: {jains_index:.3f})",
         fontsize=13, fontweight='bold',
     )
 
-    gs = fig.add_gridspec(2, 2, hspace=0.42, wspace=0.32)
+    gs = fig.add_gridspec(2, 1, hspace=0.42, wspace=0.32)
 
-    ax4 = fig.add_subplot(gs[0, 0:2])   # resource bars (full width top)
+    ax4 = fig.add_subplot(gs[0, 0])   # resource bars (full width top)
     ax5 = fig.add_subplot(gs[1, 0])     # priority breakdown
-    ax6 = fig.add_subplot(gs[1, 1])     # deadline compliance
 
     plot_resource_utilisation(ax4, uavs)
     plot_priority_breakdown(ax5, uavs)
-    plot_deadline_compliance(ax6, uavs, routes)
 
     plt.tight_layout()
-    plt.show()
+    if save_dir:
+        import os
+        path = os.path.join(save_dir, f"{prefix}analytics_dashboard.png")
+        plt.savefig(path, dpi=150)
+        plt.close()
+    else:
+        plt.show()
+
+    # Figure 5: Deadline compliance
+    fig_deadline, ax_deadline = plt.subplots(figsize=(8, 5))
+
+    fig_deadline.suptitle(
+        "Mission Deadline Compliance Analysis",
+        fontsize=13,
+        fontweight='bold'
+    )
+
+    plot_deadline_compliance(
+        ax_deadline,
+        uavs,
+        routes
+    )
+
+    fig_deadline.tight_layout(rect=[0, 0, 1, 0.93])
+
+    if save_dir:
+        import os
+        path = os.path.join(
+            save_dir,
+            f"{prefix}deadline_compliance.png"
+        )
+        plt.savefig(path, dpi=150)
+        plt.close()
+    else:
+        plt.show()
 
 
 # ----------------------------------------------------------
-# SUPPLEMENTARY: Q-TABLE CONVERGENCE PLOT
+# SUPPLEMENTARY: ROLLOUT RL REWARD CONVERGENCE PLOT
 # ----------------------------------------------------------
 
-def plot_reward_convergence(reward_logs: dict):
+def plot_reward_convergence(reward_logs: dict, save_dir=None, prefix=""):
     """
-    Plot per-UAV episode reward curves from TSA training.
+    Plot per-UAV episode reward curves from TSA rollout training.
 
     Parameters
     ----------
@@ -504,8 +562,14 @@ def plot_reward_convergence(reward_logs: dict):
 
     ax.set_xlabel('Episode')
     ax.set_ylabel('Smoothed episode reward')
-    ax.set_title('TSA Q-Learning Convergence (20-episode rolling mean)')
+    ax.set_title('TSA Rollout RL Convergence (20-episode rolling mean)')
     ax.legend(fontsize=7, ncol=3)
     ax.grid(linestyle='--', alpha=0.5)
     plt.tight_layout()
-    plt.show()
+    if save_dir:
+        import os
+        path = os.path.join(save_dir, f"{prefix}convergence.png")
+        plt.savefig(path, dpi=150)
+        plt.close()
+    else:
+        plt.show()

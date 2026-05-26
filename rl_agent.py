@@ -40,7 +40,19 @@ from config import (
     EPSILON,
     CD, CP, CT, CC,
     UAV_SPEED,
+    ENERGY_PER_METER,
 )
+
+
+class TempUAVProxy:
+    def __init__(self, max_energy, max_hover_time, max_compute, rem_energy, rem_hover, rem_compute):
+        self.max_energy = max_energy
+        self.max_hover_time = max_hover_time
+        self.max_compute = max_compute
+        
+        self.remaining_energy = rem_energy
+        self.remaining_hover_time = rem_hover
+        self.remaining_compute = rem_compute
 
 
 # ----------------------------------------------------------
@@ -56,15 +68,15 @@ class QLearningTrajectoryPlanner:
     ----------
     uav      : UAV object (position, residual resources)
     tasks    : list[Task] – the UAV's assigned task subset
-    q_table  : np.ndarray shape (n_tasks, n_tasks)
-               Q[i, j] = value of "go to task j when at task i"
+    q_table  : dict mapping state key (current_state, visited_mask) to np.ndarray shape (n_tasks,)
     """
 
-    def __init__(self, uav, tasks):
+    def __init__(self, uav, tasks, optimize=True):
 
         self.uav      = uav
         self.tasks    = list(tasks)        # local copy
         self.n        = len(self.tasks)
+        self.optimize = optimize
 
         if self.n == 0:
             raise ValueError(
@@ -76,22 +88,98 @@ class QLearningTrajectoryPlanner:
             t.task_id: i for i, t in enumerate(self.tasks)
         }
 
-        # Q-table: rows = current task, cols = next task
-        # Extra row/col 0 represents the UAV start position
-        # Total size: (n+1) × (n+1)  where index 0 = start
-        self.q_table = np.zeros(
-            (self.n + 1, self.n + 1), dtype=np.float64
-        )
+        # Q-table: dictionary lookup to handle large task sets efficiently
+        # key: (current_state, visited_mask) -> np.ndarray of shape (n,)
+        self.q_table = {}
 
         # Track best route found during training
         self._best_route   = None
         self._best_reward  = -float('inf')
 
+        # Bootstrap Q-table using a greedy EDF heuristic route
+        if self.optimize:
+            self._bootstrap_q_table()
+
+    # --------------------------------------------------
+    # HEURISTIC ROUTE GENERATION & BOOTSTRAPPING
+    # --------------------------------------------------
+
+    def _find_heuristic_route(self):
+        """
+        Greedily constructs a route prioritizing deadlines, distances,
+        and high priority to guide initial RL exploration.
+        """
+        current_pos = (self.uav.x, self.uav.y)
+        remaining = set(range(self.n))
+        route = []
+        
+        # Track simulated resources
+        curr_hover = self.uav.remaining_hover_time
+        curr_energy = self.uav.remaining_energy
+        curr_compute = self.uav.remaining_compute
+
+        while remaining:
+            best_idx = None
+            best_score = -float('inf')
+            
+            for idx in remaining:
+                task = self.tasks[idx]
+                dist = math.hypot(current_pos[0] - task.x, current_pos[1] - task.y)
+                travel_t = dist / UAV_SPEED
+                travel_e = dist * ENERGY_PER_METER
+                
+                # Feasibility check
+                if (travel_t + task.hover_time <= curr_hover and
+                    travel_e + task.energy_cost <= curr_energy and
+                    task.compute_load <= curr_compute):
+                    
+                    # Balanced score: penalize distance and late deadlines, favor priority
+                    score = -0.5 * dist - 0.2 * task.deadline + 10.0 * task.priority
+                    if score > best_score:
+                        best_score = score
+                        best_idx = idx
+            
+            # If no task is feasible under remaining resources, fallback to nearest task
+            if best_idx is None:
+                best_idx = min(remaining, key=lambda idx: math.hypot(current_pos[0] - self.tasks[idx].x, current_pos[1] - self.tasks[idx].y))
+                
+            task = self.tasks[best_idx]
+            dist = math.hypot(current_pos[0] - task.x, current_pos[1] - task.y)
+            
+            curr_hover -= (dist / UAV_SPEED + task.hover_time)
+            curr_energy -= (dist * ENERGY_PER_METER + task.energy_cost)
+            curr_compute -= task.compute_load
+            
+            route.append(best_idx)
+            remaining.remove(best_idx)
+            current_pos = (task.x, task.y)
+            
+        return route
+
+    def _bootstrap_q_table(self):
+        """
+        Pre-populates Q-values along the heuristic route with a positive bias.
+        """
+        heuristic_route = self._find_heuristic_route()
+        current_state = 0
+        visited_mask = 0
+        for action in heuristic_route:
+            q_vals = self._get_q_values(current_state, visited_mask)
+            q_vals[action] = 100.0  # Strong initialization boost
+            visited_mask |= (1 << action)
+            current_state = action + 1
+
+    def _get_q_values(self, current_state, visited_mask):
+        state_key = current_state if not self.optimize else (current_state, visited_mask)
+        if state_key not in self.q_table:
+            self.q_table[state_key] = np.zeros(self.n, dtype=np.float64)
+        return self.q_table[state_key]
+
     # --------------------------------------------------
     # REWARD  R(s_j, a_j)  (eq 29)
     # --------------------------------------------------
 
-    def _reward(self, from_task_or_pos, to_task_idx):
+    def _reward(self, from_task_or_pos, to_task_idx, uav):
         """
         Compute reward for transitioning to tasks[to_task_idx].
         from_task_or_pos is either a Task or (x, y) tuple.
@@ -100,24 +188,22 @@ class QLearningTrajectoryPlanner:
         return calculate_reward(
             from_task_or_pos,
             next_task,
-            self.uav,
+            uav,
             CD, CP, CT, CC,
         )
 
     # --------------------------------------------------
     # FEASIBILITY FILTER
-    #
-    # A task is feasible as "next" only if the UAV has
-    # enough residual hover-time to reach it and return.
-    # (Preserves the paper's feasibility-filtered action
-    # space that keeps Q-learning tractable.)
     # --------------------------------------------------
 
-    def _feasible_actions(self, visited, current_pos):
+    def _feasible_actions(self, visited, current_pos, curr_hover, curr_energy, curr_compute):
         """
-        Returns indices of unvisited tasks that are still
-        reachable (hover-time feasibility, eq 22).
+        Returns indices of unvisited tasks that are still reachable and
+        comply with hover, energy, and compute constraints.
         """
+        if not self.optimize:
+            return [i for i in range(self.n) if i not in visited]
+
         feasible = []
         for idx in range(self.n):
             if idx in visited:
@@ -128,10 +214,15 @@ class QLearningTrajectoryPlanner:
                 current_pos[1] - task.y,
             )
             travel_t = dist / UAV_SPEED
-            # rough remaining capacity check
-            if travel_t + task.hover_time <= self.uav.remaining_hover_time:
+            travel_e = dist * ENERGY_PER_METER
+            
+            # Strict multi-resource check
+            if (travel_t + task.hover_time <= curr_hover and
+                travel_e + task.energy_cost <= curr_energy and
+                task.compute_load <= curr_compute):
                 feasible.append(idx)
-        # If nothing feasible, open all unvisited (graceful fallback)
+                
+        # If nothing feasible, open all unvisited as a fallback
         if not feasible:
             feasible = [i for i in range(self.n) if i not in visited]
         return feasible
@@ -140,17 +231,20 @@ class QLearningTrajectoryPlanner:
     # EPSILON-GREEDY ACTION SELECTION
     # --------------------------------------------------
 
-    def _select_action(self, state_idx, feasible_actions, epsilon):
+    def _select_action(self, current_state, visited_mask, feasible_actions, epsilon):
         if not feasible_actions:
             return None
         if random.random() < epsilon:
             return random.choice(feasible_actions)
-        # Greedy: max Q over feasible actions
-        q_vals = [
-            (self.q_table[state_idx, a], a)
-            for a in feasible_actions
-        ]
-        return max(q_vals, key=lambda x: x[0])[1]
+        
+        q_vals = self._get_q_values(current_state, visited_mask)
+        best_a = feasible_actions[0]
+        best_q = q_vals[best_a]
+        for a in feasible_actions:
+            if q_vals[a] > best_q:
+                best_q = q_vals[a]
+                best_a = a
+        return best_a
 
     # --------------------------------------------------
     # SINGLE EPISODE
@@ -158,62 +252,119 @@ class QLearningTrajectoryPlanner:
 
     def _run_episode(self, epsilon):
         """
-        One full Q-learning episode.
-        Returns total episode reward.
+        One full Q-learning episode with dynamic resource tracking and reward shaping.
         """
-        # State index 0 = UAV start; task states are 1..n
         current_pos   = (self.uav.x, self.uav.y)
         current_state = 0          # start node
         visited       = set()
+        visited_mask  = 0
         episode_reward = 0.0
         route_indices  = []
 
-        while len(visited) < self.n:
+        # Dynamic capacity tracking
+        curr_hover = self.uav.remaining_hover_time
+        curr_energy = self.uav.remaining_energy
+        curr_compute = self.uav.remaining_compute
+        curr_time = 0.0
 
-            feasible = self._feasible_actions(visited, current_pos)
+        while len(visited) < self.n:
+            feasible = self._feasible_actions(visited, current_pos, curr_hover, curr_energy, curr_compute)
             if not feasible:
                 break
 
-            # Action = next task local index (1-based in q_table)
-            action = self._select_action(
-                current_state, feasible, epsilon
-            )
+            action = self._select_action(current_state, visited_mask, feasible, epsilon)
             if action is None:
                 break
 
             next_task = self.tasks[action]
-            r         = self._reward(
-                current_pos if current_state == 0
-                else self.tasks[current_state - 1],
-                action
-            )
+            
+            # Physics calculations
+            dist = math.hypot(current_pos[0] - next_task.x, current_pos[1] - next_task.y)
+            travel_t = dist / UAV_SPEED
+            travel_e = dist * ENERGY_PER_METER
+            
+            arrival_time = curr_time + travel_t
+            finish_time = arrival_time + next_task.hover_time
+            
+            is_on_time = finish_time <= next_task.deadline
+            
+            # Resource updates
+            if self.optimize:
+                next_hover = curr_hover - (travel_t + next_task.hover_time)
+                next_energy = curr_energy - (travel_e + next_task.energy_cost)
+                next_compute = curr_compute - next_task.compute_load
+            else:
+                next_hover = curr_hover
+                next_energy = curr_energy
+                next_compute = curr_compute
 
-            # Max future Q over remaining unvisited tasks
-            next_visited  = visited | {action}
-            next_feasible = [
-                i for i in range(self.n)
-                if i not in next_visited
-            ]
-            if next_feasible:
-                max_future_q = max(
-                    self.q_table[action + 1, j + 1]
-                    for j in next_feasible
+            # Construct proxy UAV with current resource levels
+            if self.optimize:
+                uav_proxy = TempUAVProxy(
+                    self.uav.max_energy,
+                    self.uav.max_hover_time,
+                    self.uav.max_compute,
+                    curr_energy,
+                    curr_hover,
+                    curr_compute
                 )
+            else:
+                uav_proxy = self.uav
+            
+            # Base reward
+            r = self._reward(
+                current_pos if current_state == 0 else self.tasks[current_state - 1],
+                action,
+                uav_proxy
+            )
+            
+            # Reward shaping
+            if self.optimize:
+                if not is_on_time:
+                    # Penalize late completions
+                    r -= 200.0 * (finish_time - next_task.deadline)
+                else:
+                    # Reward on-time completion based on priority
+                    r += 50.0 * next_task.priority
+
+                # Penalize resource overruns
+                if next_hover < 0:
+                    r -= 500.0
+                if next_energy < 0:
+                    r -= 500.0
+                if next_compute < 0:
+                    r -= 500.0
+
+            # Max future Q lookup
+            next_visited  = visited | {action}
+            next_visited_mask = visited_mask | (1 << action)
+            next_feasible = [i for i in range(self.n) if i not in next_visited]
+            
+            if next_feasible:
+                next_q_vals = self._get_q_values(action + 1, next_visited_mask)
+                max_future_q = max(next_q_vals[j] for j in next_feasible)
             else:
                 max_future_q = 0.0
 
-            # Q-update  (eq 30)
-            old_q = self.q_table[current_state, action + 1]
-            self.q_table[current_state, action + 1] = (
+            # Q-table update
+            q_vals = self._get_q_values(current_state, visited_mask)
+            old_q = q_vals[action]
+            q_vals[action] = (
                 (1 - RL_ALPHA) * old_q
                 + RL_ALPHA * (r + RL_GAMMA * max_future_q)
             )
 
             episode_reward += r
             visited.add(action)
+            visited_mask = next_visited_mask
             route_indices.append(action)
+            
             current_pos   = (next_task.x, next_task.y)
             current_state = action + 1
+            curr_hover    = next_hover
+            curr_energy   = next_energy
+            curr_compute  = next_compute
+            curr_time     = finish_time
 
         return episode_reward, route_indices
 
@@ -264,52 +415,31 @@ class QLearningTrajectoryPlanner:
         """
         Return the task execution sequence as an ordered
         list of Task objects.
-
-        Uses the best route recorded during training.
-        Falls back to greedy Q-table extraction if no
-        complete route was found.
         """
-
         if self._best_route and len(self._best_route) == self.n:
             return [self.tasks[i] for i in self._best_route]
 
-        # --- Greedy fallback ---
-        # Start from the task nearest to the UAV
-        start = min(
-            range(self.n),
-            key=lambda i: math.hypot(
-                self.tasks[i].x - self.uav.x,
-                self.tasks[i].y - self.uav.y,
-            )
-        )
-
-        route   = [start]
-        visited = {start}
-        current = start + 1    # q_table index (1-based)
+        # --- Greedy fallback using Q-table ---
+        current_state = 0
+        visited_mask = 0
+        route = []
+        visited = set()
 
         while len(visited) < self.n:
-            remaining = [
-                j for j in range(self.n) if j not in visited
-            ]
+            remaining = [j for j in range(self.n) if j not in visited]
             if not remaining:
                 break
-            next_idx = max(
-                remaining,
-                key=lambda j: self.q_table[current, j + 1]
-            )
+            q_vals = self._get_q_values(current_state, visited_mask)
+            next_idx = max(remaining, key=lambda j: q_vals[j])
             route.append(next_idx)
             visited.add(next_idx)
-            current = next_idx + 1
+            visited_mask |= (1 << next_idx)
+            current_state = next_idx + 1
 
         return [self.tasks[i] for i in route]
 
     # --------------------------------------------------
     # DEADLINE-AWARE SEQUENCE REORDER
-    #
-    # Post-processes the Q-learned route to push any
-    # urgent (priority-1) tasks earlier if deadline risk
-    # is detected.  Mirrors the TSA "task-sequence dynamic
-    # adjustment" described in paper Section 3.4.
     # --------------------------------------------------
 
     def reorder_by_deadline(self, route):
@@ -357,7 +487,7 @@ class QLearningTrajectoryPlanner:
 # FLEET-LEVEL TSA  (run planner for every UAV)
 # ----------------------------------------------------------
 
-def run_tsa_for_fleet(uavs, epochs=EPOCHS, verbose=True):
+def run_tsa_for_fleet(uavs, epochs=EPOCHS, verbose=True, optimize=True):
     """
     Trains a Q-learning planner for each UAV in the fleet
     and returns a dict  {uav_id: ordered_task_list}.
@@ -382,12 +512,14 @@ def run_tsa_for_fleet(uavs, epochs=EPOCHS, verbose=True):
             print(f"  Training TSA for UAV {uav.uav_id:02d} "
                   f"({len(uav.assigned_tasks)} tasks)...")
 
-        planner = QLearningTrajectoryPlanner(uav, uav.assigned_tasks)
+        planner = QLearningTrajectoryPlanner(uav, uav.assigned_tasks, optimize=optimize)
         planner.train(epochs=epochs, verbose=verbose)
 
         route = planner.get_best_route()
-        route = planner.reorder_by_deadline(route)
+        if optimize:
+            route = planner.reorder_by_deadline(route)
 
+        uav.assigned_tasks = route
         all_routes[uav.uav_id] = route
 
     return all_routes

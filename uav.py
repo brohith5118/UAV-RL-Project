@@ -6,7 +6,7 @@
 
 import math
 
-from config import UAV_SPEED , ENERGY_PER_METER
+from config import UAV_SPEED
 
 
 class UAV:
@@ -25,10 +25,6 @@ class UAV:
         self.uav_id   = uav_id
         self.x        = x
         self.y        = y
-        self.region_x = x
-        self.region_y = y
-        self.current_x = x
-        self.current_y = y
         self.uav_type = uav_type   # ψ_{UAV_u}
 
         # -----------------------------------------------
@@ -75,17 +71,14 @@ class UAV:
     # --------------------------------------------------
 
     def is_compatible(self, task):
-
-        if self.uav_type == -1:
-            return task.task_type == -1
-
-        elif self.uav_type == 0:
-            return task.task_type in [-1,0,1]
-
-        elif self.uav_type == 1:
-            return task.task_type in [0,1]
-
-        return False
+        """
+        UAV can handle a task only if capability-type
+        difference ≤ 1 (paper eq 19).
+        type-(-1) UAV: acquisition only → cannot do type 1
+        type-0 UAV   : mixed            → can do all
+        type-1 UAV   : compute-heavy    → cannot do type -1
+        """
+        return abs(self.uav_type - task.task_type) <= 1
 
     # --------------------------------------------------
     # Euclidean distance to a task
@@ -93,8 +86,8 @@ class UAV:
 
     def distance_to(self, task):
         return math.hypot(
-            self.current_x - task.x,
-            self.current_y - task.y
+            self.x - task.x,
+            self.y - task.y
         )
 
     # --------------------------------------------------
@@ -139,19 +132,9 @@ class UAV:
 
     def consume_resources(self, task):
         """Deduct task workload from residual capacities."""
-        travel_distance = self.distance_to(task)
-        travel_time = travel_distance / UAV_SPEED
-        travel_energy = travel_distance * ENERGY_PER_METER
-
-        total_time = travel_time + task.hover_time
-        total_energy = task.energy_cost + travel_energy
-        
-        self.remaining_energy     -= total_energy
-        self.remaining_hover_time -= total_time
+        self.remaining_energy     -= task.energy_cost
+        self.remaining_hover_time -= task.hover_time
         self.remaining_compute    -= task.compute_load
-
-        self.current_x = task.x
-        self.current_y = task.y
 
     def __repr__(self):
         return (

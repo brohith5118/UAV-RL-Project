@@ -23,8 +23,8 @@ def task_distance(task_a, task_b):
     return math.hypot(task_a.x - task_b.x, task_a.y - task_b.y)
 
 
-def distance(uav, task):
-    return math.hypot(uav.region_x - task.x, uav.region_y - task.y)
+def uav_to_task_distance(uav, task):
+    return math.hypot(uav.x - task.x, uav.y - task.y)
 
 
 # ----------------------------------------------------------

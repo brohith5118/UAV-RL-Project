@@ -8,24 +8,21 @@
 # ---------------------------------------------------------
 # MAP / GRID SETTINGS
 # ---------------------------------------------------------
-MAP_WIDTH  = 50         # Grid units
+MAP_WIDTH  = 50          # Grid units
 MAP_HEIGHT = 50
 GRID_RESOLUTION = 1      # metres per cell (Δr)
-
-SEED = 5 # change this for different random scenarios
-SEED_UAV = 7 # change this for different UAV fleet generation
 
 # ---------------------------------------------------------
 # TASK SETTINGS
 # ---------------------------------------------------------
-NUM_TASKS           = 10
-HIGH_PRIORITY_RATIO = 0.2   # fraction with priority=1
+NUM_TASKS           = 100
+HIGH_PRIORITY_RATIO = 0.3   # fraction with priority=1
 
 # Priority levels (paper Table 9)
 # 1 = critical  (deadline 800 s)
 # 2 = important (deadline 1000 s)
 # 3 = routine   (deadline 1200 s)
-PRIORITY_DEADLINES = {1: 800, 2: 1000, 3: 1200}
+PRIORITY_DEADLINES = {1: 80, 2: 100, 3: 120}
 
 # Task type flags  (paper eq 13 / Table 3)
 # -1  acquisition-only (no compute)
@@ -36,31 +33,32 @@ TASK_TYPE_RATIO = {-1: 0.4, 0: 0.3, 1: 0.3}
 # ---------------------------------------------------------
 # UAV FLEET SETTINGS
 # ---------------------------------------------------------
-NUM_UAVS = 4
+NUM_UAVS = 10
 
 # Energy budget  (J)
-MIN_ENERGY = 150
-MAX_ENERGY = 300
+MIN_ENERGY = 300
+MAX_ENERGY = 500
 
 # Hovering time budget  (s)
-MIN_HOVER_TIME = 80
-MAX_HOVER_TIME = 200
+MIN_HOVER_TIME = 150
+MAX_HOVER_TIME = 300
 
 # Compute budget  (GHz·s)
 MIN_COMPUTE = 0.0
 MAX_COMPUTE = 80.0
 
-UAV_SPEED = 5.0
+# Flight speed  m/s  (paper Table 1)
+UAV_SPEED = 20.0
 
 # Energy consumed per unit distance  (J/m)
-ENERGY_PER_METER = 3.0
+ENERGY_PER_METER = 2.0
 
 # UAV type capacities matching paper Table 1
 # type -1: long-endurance acquisition-only (no compute)
 # type  0: balanced
 # type  1: processing-capable (shorter endurance)
-UAV_TYPE_MAX_FLIGHT = {-1: 220, 0: 180, 1: 140}   # s
-UAV_TYPE_MAX_COMPUTE = {-1: 0.0,  0: 80.0, 1: 60.0}   # GHz·s
+UAV_TYPE_MAX_FLIGHT = {-1: 180, 0: 150, 1: 120}   # s
+UAV_TYPE_MAX_COMPUTE = {-1: 0.0,  0: 80.0, 1: 50.0}   # GHz·s
 
 # Maximum flight range derived from speed × max flight time
 # Used in constraint (9): ||p_u - p_i|| <= D^max_u
@@ -69,12 +67,11 @@ UAV_TYPE_MAX_COMPUTE = {-1: 0.0,  0: 80.0, 1: 60.0}   # GHz·s
 # ---------------------------------------------------------
 # REGION PARTITIONING  (D-module, eq 3–8)
 # ---------------------------------------------------------
-ALPHA      = 1.0 / MAP_WIDTH  # distance weight
-GAMMA      = 4.0  # priority attraction
+ALPHA      = 1.0   # distance weight
+GAMMA      = 15.0  # priority attraction
 RHO        = 0.05  # Lagrange sub-gradient step  ρ
-ETA        = 5.0  # future energy penalty weight
-LAMBDA_TV  = 0.2   # TV regularisation  λ_TV
-ITERATIONS = 10    # power-diagram iterations
+LAMBDA_TV  = 5.0   # TV regularisation  λ_TV
+ITERATIONS = 20    # power-diagram iterations
 
 # Periodic re-partitioning hysteresis (section after eq 8)
 DELTA_T                = 10    # re-evaluate every Δt seconds
@@ -99,10 +96,10 @@ SOM_LEARN_RATE  = 0.5        # initial SOM learning rate
 EPOCHS    = 500      # Q-learning episodes
 RL_ALPHA  = 0.1      # α  learning rate
 RL_GAMMA  = 0.9      # γ  discount factor
-EPSILON   = 0.1      # ε-greedy exploration
+EPSILON   = 0.2      # ε-greedy exploration
 
 # Reward coefficients (eq 29)
-CD = -6.0 / MAP_WIDTH  # c_d  distance penalty  (negative → minimise)
+CD = -6.0   # c_d  distance penalty  (negative → minimise)
 CP =  1.0   # c_p  priority reward
 CT =  1.0   # c_t  endurance-preservation reward
 CC =  1.0   # c_c  compute-sufficiency reward
@@ -110,6 +107,6 @@ CC =  1.0   # c_c  compute-sufficiency reward
 # ---------------------------------------------------------
 # DYNAMIC EVENTS
 # ---------------------------------------------------------
-ENABLE_DYNAMIC_EVENTS   = True
+ENABLE_DYNAMIC_EVENTS   = True  # set to True to enable new task arrivals and UAV failures
 NEW_TASK_ARRIVAL_RATE   = 0.1   # probability per time-step
-UAV_FAILURE_PROBABILITY = 0.02 
+UAV_FAILURE_PROBABILITY = 0.02

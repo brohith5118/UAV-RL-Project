@@ -355,6 +355,7 @@ def assign_tasks(task_list, uavs):
                 best_uav = feasible_candidates[0][1]
 
                 best_uav.assigned_tasks.append(task)
+                
 
             else:
                 unassigned_tasks.append(task)
@@ -390,6 +391,32 @@ def assign_tasks(task_list, uavs):
     # GREEDY ROUTE INITIALIZATION
     for uav in uavs:
         nearest_neighbor_order(uav)
+
+    # RESET RESOURCES
+    for uav in uavs:
+        uav.reset_resources()
+
+    # APPLY FINAL RESOURCE CONSUMPTION
+    for uav in uavs:
+
+        total_energy, total_hover, total_compute = (
+            estimate_route_cost(
+                uav,
+                uav.assigned_tasks
+            )
+        )
+
+        uav.remaining_energy = (
+            uav.max_energy - total_energy
+        )
+
+        uav.remaining_hover_time = (
+            uav.max_hover_time - total_hover
+        )
+
+        uav.remaining_compute = (
+            uav.max_compute - total_compute
+        )
 
     _print_partitioning_summary(
         uavs,

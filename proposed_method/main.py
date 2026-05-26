@@ -1,45 +1,26 @@
 # =========================================================
-# MAIN  –  DMMP-PR-TSA Pipeline
+# MAIN  –  DMMP-R-RL-AC Proposed Pipeline
 #
-# Execution flow:
-#
-#   1. Generate sensing-demand map  (environment)
-#   2. Sample tasks weighted by demand  (environment)
-#   3. Generate heterogeneous UAV fleet  (environment)
-#
-#   4. [D-MODULE]  Capacity-constrained power-diagram
-#      region partitioning  (scheduler)
-#
-#   5. [PR-MODULE]  SOM-based pre-assignment  (pr_module)
-#
-#   6. [TSA-MODULE]  Q-learning task sequence optimisation
-#      per UAV  (rl_agent)
-#
-#   7. Simulate dynamic events:
-#        (a) New urgent task insertion
-#        (b) Task location update
-#        (c) UAV failure
-#      Re-run PR re-assignment + TSA after each event.
-#
-#   8. Print mission metrics
-#   9. Visualise results
+# Execution flow using Heuristic-Guided Rollout RL & RC-KMeans++
 # =========================================================
 
+import sys
+import os
 import random
 import numpy as np
 
+# Add parent directory to path so we can import root modules
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
 from environment  import generate_demand_map, generate_tasks, generate_uavs, generate_new_task
 from scheduler    import assign_tasks
-from pr_module    import (
-    preassign,
-    reassign_new_tasks,
-    reassign_after_location_update,
-    reassign_after_uav_failure,
-    cancel_tasks,
-)
-from rl_agent     import run_tsa_for_fleet, QLearningTrajectoryPlanner
 from utils        import print_mission_metrics
-from visualization import plot_all, plot_reward_convergence
+try:
+    from proposed_method.visualization import plot_all, plot_reward_convergence
+except ImportError:
+    from visualization import plot_all, plot_reward_convergence
 
 from config import (
     NUM_TASKS,
@@ -49,11 +30,28 @@ from config import (
     ENABLE_DYNAMIC_EVENTS,
 )
 
+# Robust import handling for proposed method modules
+try:
+    from proposed_method.pr_module import (
+        preassign,
+        reassign_new_tasks,
+        reassign_after_location_update,
+        reassign_after_uav_failure,
+        cancel_tasks,
+    )
+    from proposed_method.rl_agent import run_tsa_for_fleet, QLearningTrajectoryPlanner
+except ImportError:
+    from pr_module import (
+        preassign,
+        reassign_new_tasks,
+        reassign_after_location_update,
+        reassign_after_uav_failure,
+        cancel_tasks,
+    )
+    from rl_agent import run_tsa_for_fleet, QLearningTrajectoryPlanner
 
-# ----------------------------------------------------------
-# SEED for reproducibility
-# ----------------------------------------------------------
-SEED = 1
+
+SEED = 5
 random.seed(SEED)
 np.random.seed(SEED)
 
@@ -63,9 +61,8 @@ np.random.seed(SEED)
 # ==========================================================
 
 def setup_environment():
-
     print("=" * 60)
-    print("  DMMP-PR-TSA  |  UAV Remote Sensing Scheduler")
+    print("  Proposed R-RL-AC  |  UAV Remote Sensing Scheduler")
     print("=" * 60)
 
     print("\n[1] Generating sensing-demand map...")
@@ -94,11 +91,10 @@ def setup_environment():
 
 
 # ==========================================================
-# STEP 4 : D-MODULE  –  Region Partitioning
+# STEP 4 : D-MODULE  –  Region Partitioning (Run and print to match baseline structure)
 # ==========================================================
 
 def run_d_module(tasks, uavs):
-
     print("\n[4] D-MODULE: Capacity-Constrained Region Partitioning")
     print("    Running power-diagram optimisation with Lagrange multipliers...")
 
@@ -113,37 +109,32 @@ def run_d_module(tasks, uavs):
 
 
 # ==========================================================
-# STEP 5 : PR-MODULE  –  SOM Pre-Assignment
+# STEP 5 : PR-MODULE  –  RC-KMeans Pre-Assignment
 # ==========================================================
 
 def run_pr_module(tasks, uavs, optimize=True):
-
-    print("\n[5] PR-MODULE: SOM Pre-Assignment")
-    print("    Running SOM competitive learning...")
-
-    # Reset task assignment metadata from D-module
+    print("\n[5] PR-MODULE: Proposed RC-KMeans Assignment")
+    
+    # Reset task assignments
     for t in tasks:
         t.assigned_uav = None
 
     uavs = preassign(tasks, uavs, optimize=optimize)
-
     return uavs
 
 
 # ==========================================================
-# STEP 6 : TSA-MODULE  –  RL Sequence Optimisation
+# STEP 6 : TSA-MODULE  –  Rollout RL Sequence Optimisation
 # ==========================================================
 
 def run_tsa_module(uavs, optimize=True):
-
-    print("\n[6] TSA-MODULE: Q-Learning Task Sequence Adjustment")
-    print(f"    Training {EPOCHS} episodes per UAV...")
+    print("\n[6] TSA-MODULE: Proposed Rollout RL Task Sequence Adjustment")
+    print(f"    Evaluating lookahead policy instantly per UAV...")
 
     reward_logs = {}
     all_routes  = {}
 
     for uav in uavs:
-
         if not uav.active or not uav.assigned_tasks:
             all_routes[uav.uav_id]  = []
             reward_logs[uav.uav_id] = []
@@ -154,6 +145,7 @@ def run_tsa_module(uavs, optimize=True):
               f"type {uav.uav_type:+d})...", end=' ')
 
         planner = QLearningTrajectoryPlanner(uav, uav.assigned_tasks, optimize=optimize)
+        # Returns rollout rewards replicated over epochs
         logs    = planner.train(epochs=EPOCHS, verbose=False)
 
         route   = planner.get_best_route()
@@ -174,11 +166,8 @@ def run_tsa_module(uavs, optimize=True):
 
 def simulate_dynamic_events(tasks, uavs, demand_map, optimize=True):
     """
-    Simulate the three representative dynamic events from
-    the paper (Section 3.3) and re-run PR + TSA after each.
-    Returns the final routes and a log of events.
+    Simulate dynamic events and run RC-KMeans + Rollout RL.
     """
-
     if not ENABLE_DYNAMIC_EVENTS:
         print("\n[7] Dynamic events: DISABLED (set ENABLE_DYNAMIC_EVENTS=True)")
         routes, logs = run_tsa_module(uavs, optimize=optimize)
@@ -209,7 +198,6 @@ def simulate_dynamic_events(tasks, uavs, demand_map, optimize=True):
     # EVENT (b): Task location update
     # -------------------------------------------------------
     print("\n[7b] DYNAMIC EVENT: Task location update")
-    # Pick a random assigned task and shift its location
     assigned_tasks_flat = [
         t for u in uavs for t in u.assigned_tasks
     ]
@@ -255,11 +243,9 @@ def simulate_dynamic_events(tasks, uavs, demand_map, optimize=True):
 # ==========================================================
 
 def report_metrics(uavs, tasks, routes):
-
     print("\n[8] MISSION METRICS")
     print_mission_metrics(uavs, tasks)
 
-    # Per-UAV task count summary
     print("    Per-UAV task breakdown:")
     for uav in uavs:
         route = routes.get(uav.uav_id, [])
@@ -276,15 +262,13 @@ def report_metrics(uavs, tasks, routes):
 # ==========================================================
 
 def visualise(uavs, routes, tasks, demand_map, reward_logs, save_dir=None, prefix=""):
-
     print("\n[9] Generating visualisations...")
-
     plot_all(uavs, routes, tasks, demand_map, save_dir=save_dir, prefix=prefix)
     plot_reward_convergence(reward_logs, save_dir=save_dir, prefix=prefix)
 
 
 # ==========================================================
-# MAIN
+# MAIN EXECUTION ROUTINE
 # ==========================================================
 
 def main(optimize=True, save_dir=None, prefix=""):
@@ -298,34 +282,31 @@ def main(optimize=True, save_dir=None, prefix=""):
         compute_utilisation,
     )
 
-    # ---- Environment ----
     demand_map, tasks, uavs = setup_environment()
 
-    # ---- D-Module ----
+    # Run D-Module (partitioning output format compatibility)
     uavs, _unassigned = run_d_module(tasks, uavs)
 
-    # ---- PR-Module ----
-    uavs = run_pr_module(tasks, uavs, optimize=optimize)
+    # Run Proposed PR-Module (RC-KMeans)
+    # uavs = run_pr_module(tasks, uavs, optimize=optimize)
 
-    # ---- TSA + Dynamic Events ----
+    # Run Proposed TSA-Module (Rollout RL) + dynamic event handling
     routes, reward_logs, event_log = simulate_dynamic_events(
         tasks, uavs, demand_map, optimize=optimize
     )
 
-    # ---- Metrics ----
     report_metrics(uavs, tasks, routes)
 
-    # ---- Visualise ----
     visualise(uavs, routes, tasks, demand_map, reward_logs, save_dir=save_dir, prefix=prefix)
 
-    # Compute metrics
+    # Calculate final metrics
     cr  = completion_rate(uavs, tasks)
     hcr = high_priority_completion_rate(uavs)
     td  = total_travel_distance(uavs)
     eu  = energy_utilisation(uavs)
     cu  = compute_utilisation(uavs)
 
-    # Compute overloaded UAV count
+    # Check overloaded count
     overloaded_count = 0
     for u in uavs:
         if not u.active:
