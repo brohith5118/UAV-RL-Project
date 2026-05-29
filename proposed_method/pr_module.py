@@ -157,7 +157,7 @@ def rc_kmeans_assign(tasks, uavs, base_x=0.0, base_y=0.0):
 # PR-MODULE PUBLIC API
 # ----------------------------------------------------------
 
-def preassign(tasks, uavs, base_x=0.0, base_y=0.0, optimize=True):
+def preassign(tasks, uavs, base_x=0.0, base_y=0.0):
     """
     Initial task pre-assignment phase.
     Clears old assignments and assigns all tasks.

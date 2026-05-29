@@ -119,7 +119,7 @@ def run_pr_module(tasks, uavs, optimize=True):
     for t in tasks:
         t.assigned_uav = None
 
-    uavs = preassign(tasks, uavs, optimize=optimize)
+    uavs = preassign(tasks, uavs)
     return uavs
 
 
@@ -263,8 +263,8 @@ def report_metrics(uavs, tasks, routes):
 
 def visualise(uavs, routes, tasks, demand_map, reward_logs, save_dir=None, prefix=""):
     print("\n[9] Generating visualisations...")
-    plot_all(uavs, routes, tasks, demand_map, save_dir=save_dir, prefix=prefix)
-    plot_reward_convergence(reward_logs, save_dir=save_dir, prefix=prefix)
+    plot_all(uavs, routes, tasks, demand_map, prefix=prefix)
+    plot_reward_convergence(reward_logs, prefix=prefix)
 
 
 # ==========================================================
