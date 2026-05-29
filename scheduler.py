@@ -82,6 +82,13 @@ def update_region_centroids(uavs):
 # ----------------------------------------------------------
 
 def is_feasible(uav, task):
+    """
+    Returns True iff assigning *task* to *uav* keeps all
+    three resource dimensions within their capacity limits.
+    Includes travel overhead (energy + time to reach task).
+    Also enforces flight-range constraint (eq 9) and
+    type-compatibility constraint (eq 13).
+    """
 
     if not uav.is_compatible(task):
         return False
@@ -91,6 +98,8 @@ def is_feasible(uav, task):
     total_energy, total_hover, total_compute = (
         estimate_route_cost(uav, tentative_tasks)
     )
+    used_hover   = sum(t.hover_time  for t in uav.assigned_tasks)
+    used_compute = sum(t.compute_load for t in uav.assigned_tasks)
 
     if total_energy > uav.max_energy:
         return False
@@ -203,6 +212,10 @@ def compactness_penalty(uav, task):
 # ----------------------------------------------------------
 
 def update_lagrange_multipliers(uav):
+    """
+    Update all three Lagrange multipliers for UAV u.
+    Usage includes travel overhead for energy / hover.
+    """
 
     total_energy, total_hover, total_compute = (
         estimate_route_cost(
@@ -272,14 +285,14 @@ def nearest_neighbor_order(uav):
 # ----------------------------------------------------------
 
 def assign_tasks(task_list, uavs):
-
+    """
+    Capacity-Constrained Power-Diagram Partitioning.
+    """
     # INITIAL RESET ONLY ONCE
     for uav in uavs:
-
         uav.clear_tasks()
-
-        uav.mu_energy = 0.0
-        uav.mu_hover = 0.0
+        uav.mu_energy  = 0.0
+        uav.mu_hover   = 0.0
         uav.mu_compute = 0.0
 
         uav.region_x = uav.x
@@ -371,6 +384,7 @@ def assign_tasks(task_list, uavs):
         converged = True
 
         for uav in uavs:
+            update_lagrange_multipliers(uav)
 
             new_set = set(
                 t.task_id
@@ -435,7 +449,90 @@ def _print_partitioning_summary(
     unassigned
 ):
 
-    print("\n=== PARTITIONING SUMMARY ===")
+    return uavs, unassigned_tasks
+
+
+# ----------------------------------------------------------
+# DYNAMIC RE-PARTITIONING  (hysteresis-gated, post Section 5)
+# ----------------------------------------------------------
+
+def repartition_with_hysteresis(
+    task_list,
+    uavs,
+    prev_objective,
+    hysteresis_threshold=5.0,
+    max_reassignments=10,
+):
+    """
+    Re-runs partitioning only if the predicted objective
+    improvement exceeds the hysteresis threshold ε.
+
+    Uses a budget B = max_reassignments to limit churn.
+    Returns (uavs, new_objective, reassigned_count).
+    """
+
+    # Compute current objective
+    def objective(uavs_):
+        total = 0.0
+        for uav in uavs_:
+            for t in uav.assigned_tasks:
+                dist = math.hypot(uav.x - t.x, uav.y - t.y)
+                total += ALPHA * dist - GAMMA * (
+                    100 if t.priority == 1 else
+                    60  if t.priority == 2 else 20
+                )
+        return total
+
+    current_obj = objective(uavs)
+
+    # Compute tentative new objective (single pass)
+    test_uavs = [_clone_uav(u) for u in uavs]
+    assign_tasks(task_list, test_uavs)
+    new_obj = objective(test_uavs)
+
+    delta_j = abs(new_obj - current_obj)
+
+    if delta_j < hysteresis_threshold:
+        return uavs, current_obj, 0   # no re-partition needed
+
+    # Accept new partition, but cap reassignments
+    reassigned = 0
+    for u_old, u_new in zip(uavs, test_uavs):
+        old_set = set(t.task_id for t in u_old.assigned_tasks)
+        new_set = set(t.task_id for t in u_new.assigned_tasks)
+        changes = len(old_set.symmetric_difference(new_set)) // 2
+        if reassigned + changes > max_reassignments:
+            break
+        u_old.assigned_tasks = u_new.assigned_tasks
+        reassigned += changes
+
+    return uavs, new_obj, reassigned
+
+
+def _clone_uav(uav):
+    """Shallow clone for hysteresis testing."""
+    from uav import UAV
+    u2 = UAV(
+        uav.uav_id,
+        uav.x, uav.y,
+        uav.uav_type,
+        uav.max_energy,
+        uav.max_hover_time,
+        uav.max_compute,
+    )
+    u2.mu_energy  = uav.mu_energy
+    u2.mu_hover   = uav.mu_hover
+    u2.mu_compute = uav.mu_compute
+    return u2
+
+
+# ----------------------------------------------------------
+# HELPER: PRINT SUMMARY
+# ----------------------------------------------------------
+
+def _print_partitioning_summary(uavs, unassigned):
+
+    print("\n=== REGION PARTITIONING SUMMARY ===")
 
     for uav in uavs:
 
@@ -443,6 +540,8 @@ def _print_partitioning_summary(
             uav,
             uav.assigned_tasks
         )
+        th = sum(t.hover_time   for t in uav.assigned_tasks)
+        tf = sum(t.compute_load for t in uav.assigned_tasks)
 
         hp = sum(
             1
@@ -451,11 +550,18 @@ def _print_partitioning_summary(
         )
 
         print(
-            f"\nUAV {uav.uav_id}"
+            f"  UAV {uav.uav_id:02d} (type {uav.uav_type:+d}) | "
+            f"tasks={len(uav.assigned_tasks):3d} "
+            f"(hi-pri={hp}) | "
+            f"E={te:6.1f}/{uav.max_energy:6.1f}J  "
+            f"H={th:5.1f}/{uav.max_hover_time:5.1f}s  "
+            f"F={tf:5.1f}/{uav.max_compute:5.1f}GHz·s"
         )
 
+    if unassigned:
         print(
-            f"Tasks: {len(uav.assigned_tasks)}"
+            f"\n  ⚠  {len(unassigned)} tasks could not be assigned"
+            f" (insufficient fleet capacity)"
         )
 
         print(
