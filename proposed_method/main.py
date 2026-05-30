@@ -51,7 +51,7 @@ except ImportError:
     from rl_agent import run_tsa_for_fleet, QLearningTrajectoryPlanner
 
 
-SEED = 5
+SEED = 1
 random.seed(SEED)
 np.random.seed(SEED)
 

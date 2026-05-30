@@ -70,59 +70,110 @@ class QLearningTrajectoryPlanner:
             self.q_table[state_key] = np.zeros(self.n, dtype=np.float64)
         return self.q_table[state_key]
 
-    def _run_ra_edf_heuristic(self, current_pos, unvisited_tasks, curr_hover, curr_energy, curr_compute):
+    def _run_ra_edf_heuristic(
+        self,
+        current_pos,
+        unvisited_tasks,
+        curr_hover,
+        curr_energy,
+        curr_compute
+    ):
         """
-        Fast, resource-aware earliest deadline first heuristic for the remaining route rollout.
+        Fast, resource-aware earliest deadline first heuristic
+        for the remaining route rollout.
         """
         heuristic_reward = 0.0
         gamma = 0.9
         current_loc = current_pos
         remaining = list(unvisited_tasks)
         step = 0
+        curr_time = 0.0
 
         while remaining:
             feasible = []
-            for task in remaining:
-                dist = math.hypot(current_loc[0] - task.x, current_loc[1] - task.y)
-                travel_t = dist / UAV_SPEED
-                travel_e = dist * ENERGY_PER_METER
-                
-                if (travel_t + task.hover_time <= curr_hover and
-                    travel_e + task.energy_cost <= curr_energy and
-                    task.compute_load <= curr_compute):
-                    feasible.append((task, travel_t, travel_e, dist))
 
-            if not feasible:
-                best_task = min(remaining, key=lambda t: math.hypot(current_loc[0] - t.x, current_loc[1] - t.y))
-                dist = math.hypot(current_loc[0] - best_task.x, current_loc[1] - best_task.y)
+            for task in remaining:
+                dist = math.hypot(
+                    current_loc[0] - task.x,
+                    current_loc[1] - task.y
+                )
+
                 travel_t = dist / UAV_SPEED
                 travel_e = dist * ENERGY_PER_METER
-            else:
-                best_task, travel_t, travel_e, dist = min(feasible, key=lambda item: item[0].deadline)
+
+                if (
+                    travel_t + task.hover_time <= curr_hover
+                    and travel_e + task.energy_cost <= curr_energy
+                    and task.compute_load <= curr_compute
+                ):
+                    feasible.append(
+                        (task, travel_t, travel_e, dist)
+                    )
+
+            # SAFETY FIX:
+            # Stop rollout if no feasible task remains
+            if not feasible:
+                heuristic_reward -= 1000.0
+                break
+
+            best_task, travel_t, travel_e, dist = min(
+                feasible,
+                key=lambda item: item[0].deadline
+            )
 
             uav_proxy = TempUAVProxy(
-                self.uav.max_energy, self.uav.max_hover_time, self.uav.max_compute,
-                curr_energy, curr_hover, curr_compute
-            )
-            r = calculate_reward(
-                current_loc, best_task, uav_proxy,
-                CD, CP, CT, CC
+                self.uav.max_energy,
+                self.uav.max_hover_time,
+                self.uav.max_compute,
+                curr_energy,
+                curr_hover,
+                curr_compute
             )
 
-            finish_time = travel_t + best_task.hover_time
-            is_on_time = finish_time <= best_task.deadline
-            if not is_on_time:
-                r -= 200.0 * (finish_time - best_task.deadline)
+            r = calculate_reward(
+                current_loc,
+                best_task,
+                uav_proxy,
+                CD,
+                CP,
+                CT,
+                CC
+            )
+
+            arrival_time = curr_time + travel_t
+            finish_time = arrival_time + best_task.hover_time
+
+            if finish_time > best_task.deadline:
+                lateness = finish_time - best_task.deadline
+                penalty = min(
+                    5000.0,
+                    200.0 * lateness
+                )
+                r -= penalty
             else:
                 r += 50.0 * best_task.priority
 
-            curr_hover -= (travel_t + best_task.hover_time)
-            curr_energy -= (travel_e + best_task.energy_cost)
+            curr_hover -= (
+                travel_t + best_task.hover_time
+            )
+            curr_energy -= (
+                travel_e + best_task.energy_cost
+            )
             curr_compute -= best_task.compute_load
 
-            heuristic_reward += (gamma ** step) * r
+            curr_time = finish_time
+
+            heuristic_reward += (
+                gamma ** step
+            ) * r
+
             step += 1
-            current_loc = (best_task.x, best_task.y)
+
+            current_loc = (
+                best_task.x,
+                best_task.y
+            )
+
             remaining.remove(best_task)
 
         return heuristic_reward
@@ -191,6 +242,8 @@ class QLearningTrajectoryPlanner:
         visited_mask  = 0
         episode_reward = 0.0
         route_indices  = []
+        step_counter = 0
+        max_steps = self.n + 5
 
         curr_hover = self.uav.remaining_hover_time
         curr_energy = self.uav.remaining_energy
@@ -200,6 +253,16 @@ class QLearningTrajectoryPlanner:
         gamma = 0.9
 
         while len(visited) < self.n:
+
+            step_counter += 1
+
+            if step_counter > max_steps:
+                print(
+                    f"Warning: UAV {self.uav.uav_id} "
+                    f"episode terminated by safety limit."
+                )
+                break
+
             feasible = []
             for idx in range(self.n):
                 if idx in visited:
@@ -319,41 +382,83 @@ class QLearningTrajectoryPlanner:
 
     def reorder_by_deadline(self, route):
         """
-        Enforce additional deadline checking and reordering.
+        Enforce additional deadline checking
+        and reordering with safety limits.
         """
-        route    = list(route)
+
+        route = list(route)
         adjusted = True
 
-        while adjusted:
-            adjusted  = False
-            timeline  = estimate_finish_time(
-                self.uav, route, UAV_SPEED
+        max_iterations = max(
+            50,
+            len(route) * len(route)
+        )
+
+        iterations = 0
+
+        while adjusted and iterations < max_iterations:
+
+            iterations += 1
+            adjusted = False
+
+            timeline = estimate_finish_time(
+                self.uav,
+                route,
+                UAV_SPEED
             )
 
-            for rank, (task, ft) in enumerate(timeline):
+            for rank, (task, ft) in enumerate(
+                timeline
+            ):
+
                 if check_deadline(task, ft):
                     continue
-                # Try moving earlier
+
                 best_pos = rank
+
                 for pos in range(rank):
-                    candidate = route[:pos] + [task] + \
-                                route[pos:rank] + route[rank + 1:]
-                    tl2 = estimate_finish_time(
-                        self.uav, candidate, UAV_SPEED
+
+                    candidate = (
+                        route[:pos]
+                        + [task]
+                        + route[pos:rank]
+                        + route[rank + 1:]
                     )
+
+                    tl2 = estimate_finish_time(
+                        self.uav,
+                        candidate,
+                        UAV_SPEED
+                    )
+
                     _, ft2 = tl2[pos]
-                    if check_deadline(task, ft2):
+
+                    if check_deadline(
+                        task,
+                        ft2
+                    ):
                         best_pos = pos
                         break
+
                 if best_pos != rank:
+
                     route.pop(rank)
-                    route.insert(best_pos, task)
+                    route.insert(
+                        best_pos,
+                        task
+                    )
+
                     adjusted = True
                     break
 
+        if iterations >= max_iterations:
+            print(
+                f"Warning: UAV {self.uav.uav_id} "
+                f"deadline reordering stopped "
+                f"after {iterations} iterations."
+            )
+
         return route
-
-
 # ----------------------------------------------------------
 # FLEET-LEVEL TSA
 # ----------------------------------------------------------

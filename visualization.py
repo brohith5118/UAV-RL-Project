@@ -364,8 +364,8 @@ def plot_deadline_compliance(ax, uavs, routes):
             )
             # Deadline marker
             ax.vlines(
-                task.deadline, y_pos - 0.3, y_pos + 0.3,
-                colors='navy', linewidth=0.8, linestyles=':',
+                task.deadline, y_pos - 0.4, y_pos + 0.4,
+                colors='navy', linewidth=2.0, linestyles='--'
             )
 
             yticks.append(y_pos)

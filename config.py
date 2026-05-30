@@ -15,14 +15,14 @@ GRID_RESOLUTION = 1      # metres per cell (Δr)
 # ---------------------------------------------------------
 # TASK SETTINGS
 # ---------------------------------------------------------
-NUM_TASKS           = 100
+NUM_TASKS           = 20
 HIGH_PRIORITY_RATIO = 0.3   # fraction with priority=1
 
 # Priority levels (paper Table 9)
 # 1 = critical  (deadline 800 s)
 # 2 = important (deadline 1000 s)
 # 3 = routine   (deadline 1200 s)
-PRIORITY_DEADLINES = {1: 80, 2: 100, 3: 120}
+PRIORITY_DEADLINES = {1: 60, 2: 80, 3: 100}
 
 # Task type flags  (paper eq 13 / Table 3)
 # -1  acquisition-only (no compute)
@@ -33,7 +33,7 @@ TASK_TYPE_RATIO = {-1: 0.4, 0: 0.3, 1: 0.3}
 # ---------------------------------------------------------
 # UAV FLEET SETTINGS
 # ---------------------------------------------------------
-NUM_UAVS = 10
+NUM_UAVS = 4
 
 # Energy budget  (J)
 MIN_ENERGY = 300
@@ -107,6 +107,6 @@ CC =  1.0   # c_c  compute-sufficiency reward
 # ---------------------------------------------------------
 # DYNAMIC EVENTS
 # ---------------------------------------------------------
-ENABLE_DYNAMIC_EVENTS   = True  # set to True to enable new task arrivals and UAV failures
+ENABLE_DYNAMIC_EVENTS   = False  # set to True to enable new task arrivals and UAV failures
 NEW_TASK_ARRIVAL_RATE   = 0.1   # probability per time-step
 UAV_FAILURE_PROBABILITY = 0.02
