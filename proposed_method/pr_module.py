@@ -206,8 +206,11 @@ def reassign_after_location_update(updated_tasks, uavs,
         if old_uav is not None and task in old_uav.assigned_tasks:
             old_uav.assigned_tasks.remove(task)
             # Revert resource consumption
-            old_uav.remaining_energy     += task.energy_cost
-            old_uav.remaining_hover_time += task.hover_time
+            travel_dist = math.hypot(task.x - old_uav.x, task.y - old_uav.y)
+            travel_energy = ENERGY_PER_METER * travel_dist
+            travel_hover = travel_dist / UAV_SPEED
+            old_uav.remaining_energy     += task.energy_cost + travel_energy
+            old_uav.remaining_hover_time += task.hover_time + travel_hover
             old_uav.remaining_compute    += task.compute_load
 
     assignment = rc_kmeans_assign(updated_tasks, uavs, base_x, base_y)
@@ -271,8 +274,11 @@ def cancel_tasks(cancelled_tasks, uavs):
         ]
         for t in to_remove:
             uav.assigned_tasks.remove(t)
-            uav.remaining_energy     += t.energy_cost
-            uav.remaining_hover_time += t.hover_time
+            travel_dist = math.hypot(t.x - uav.x, t.y - uav.y)
+            travel_energy = ENERGY_PER_METER * travel_dist
+            travel_hover = travel_dist / UAV_SPEED
+            uav.remaining_energy     += t.energy_cost + travel_energy
+            uav.remaining_hover_time += t.hover_time + travel_hover
             uav.remaining_compute    += t.compute_load
 
     print(f"\n[PR] Cancelled {len(cancelled_tasks)} tasks.")

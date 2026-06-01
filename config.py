@@ -8,21 +8,26 @@
 # ---------------------------------------------------------
 # MAP / GRID SETTINGS
 # ---------------------------------------------------------
-MAP_WIDTH  = 50          # Grid units
-MAP_HEIGHT = 50
-GRID_RESOLUTION = 1      # metres per cell (Δr)
+MAP_WIDTH  = 100
+MAP_HEIGHT = 100
+
+GRID_RESOLUTION = 100
 
 # ---------------------------------------------------------
 # TASK SETTINGS
 # ---------------------------------------------------------
-NUM_TASKS           = 20
-HIGH_PRIORITY_RATIO = 0.3   # fraction with priority=1
+NUM_TASKS = 40
 
+HIGH_PRIORITY_RATIO = 0.4
 # Priority levels (paper Table 9)
 # 1 = critical  (deadline 800 s)
 # 2 = important (deadline 1000 s)
 # 3 = routine   (deadline 1200 s)
-PRIORITY_DEADLINES = {1: 60, 2: 80, 3: 100}
+PRIORITY_DEADLINES = {
+    1: 1000,
+    2: 1400,
+    3: 1800
+}
 
 # Task type flags  (paper eq 13 / Table 3)
 # -1  acquisition-only (no compute)
@@ -33,32 +38,32 @@ TASK_TYPE_RATIO = {-1: 0.4, 0: 0.3, 1: 0.3}
 # ---------------------------------------------------------
 # UAV FLEET SETTINGS
 # ---------------------------------------------------------
-NUM_UAVS = 4
+NUM_UAVS = 5
 
 # Energy budget  (J)
-MIN_ENERGY = 300
-MAX_ENERGY = 500
+MIN_ENERGY = 12000
+MAX_ENERGY = 20000
 
 # Hovering time budget  (s)
-MIN_HOVER_TIME = 150
-MAX_HOVER_TIME = 300
+MIN_HOVER_TIME = 1200
+MAX_HOVER_TIME = 3000
 
 # Compute budget  (GHz·s)
 MIN_COMPUTE = 0.0
-MAX_COMPUTE = 80.0
+MAX_COMPUTE = 120.0
 
 # Flight speed  m/s  (paper Table 1)
 UAV_SPEED = 20.0
 
 # Energy consumed per unit distance  (J/m)
-ENERGY_PER_METER = 2.0
+ENERGY_PER_METER = 0.3
 
 # UAV type capacities matching paper Table 1
 # type -1: long-endurance acquisition-only (no compute)
 # type  0: balanced
 # type  1: processing-capable (shorter endurance)
-UAV_TYPE_MAX_FLIGHT = {-1: 180, 0: 150, 1: 120}   # s
-UAV_TYPE_MAX_COMPUTE = {-1: 0.0,  0: 80.0, 1: 50.0}   # GHz·s
+UAV_TYPE_MAX_FLIGHT = {-1: 2600, 0: 2200, 1: 1800}   # s
+UAV_TYPE_MAX_COMPUTE = {-1: 0.0,  0: 60.0, 1: 120.0}   # GHz·s
 
 # Maximum flight range derived from speed × max flight time
 # Used in constraint (9): ||p_u - p_i|| <= D^max_u

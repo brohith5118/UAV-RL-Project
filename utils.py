@@ -160,18 +160,19 @@ def completion_rate(uavs, all_tasks):
     return completed / total if total > 0 else 0.0
 
 
-def high_priority_completion_rate(uavs):
+def high_priority_completion_rate(uavs,tasks):
     """Completion rate restricted to priority-1 tasks."""
     from config import UAV_SPEED
 
     hi_total     = 0
     hi_completed = 0
 
+    for task in tasks:
+        if task.priority != 1:
+            continue
+        hi_total += 1
+
     for uav in uavs:
-        for task in uav.assigned_tasks:
-            if task.priority != 1:
-                continue
-            hi_total += 1
 
         timeline = estimate_finish_time(
             uav, uav.assigned_tasks, UAV_SPEED
@@ -221,7 +222,7 @@ def compute_utilisation(uavs):
 
 def print_mission_metrics(uavs, all_tasks):
     cr  = completion_rate(uavs, all_tasks)
-    hcr = high_priority_completion_rate(uavs)
+    hcr = high_priority_completion_rate(uavs, all_tasks)
     td  = total_travel_distance(uavs)
     eu  = energy_utilisation(uavs)
     cu  = compute_utilisation(uavs)

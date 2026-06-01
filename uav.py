@@ -6,9 +6,7 @@
 
 import math
 
-from config import UAV_SPEED
-
-
+from config import UAV_SPEED, ENERGY_PER_METER
 class UAV:
 
     def __init__(
@@ -71,14 +69,17 @@ class UAV:
     # --------------------------------------------------
 
     def is_compatible(self, task):
-        """
-        UAV can handle a task only if capability-type
-        difference ≤ 1 (paper eq 19).
-        type-(-1) UAV: acquisition only → cannot do type 1
-        type-0 UAV   : mixed            → can do all
-        type-1 UAV   : compute-heavy    → cannot do type -1
-        """
-        return abs(self.uav_type - task.task_type) <= 1
+
+        if task.task_type == -1:
+            return True
+
+        if task.task_type == 0:
+            return self.uav_type in [0,1]
+
+        if task.task_type == 1:
+            return self.uav_type == 1
+
+        return False
 
     # --------------------------------------------------
     # Euclidean distance to a task
@@ -132,8 +133,10 @@ class UAV:
 
     def consume_resources(self, task):
         """Deduct task workload from residual capacities."""
-        self.remaining_energy     -= task.energy_cost
-        self.remaining_hover_time -= task.hover_time
+        travel_energy = self.distance_to(task) * ENERGY_PER_METER
+        travel_time   = self.distance_to(task) / UAV_SPEED
+        self.remaining_energy     -= task.energy_cost + travel_energy
+        self.remaining_hover_time -= travel_time + task.hover_time
         self.remaining_compute    -= task.compute_load
 
     def __repr__(self):

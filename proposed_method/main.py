@@ -17,10 +17,10 @@ if parent_dir not in sys.path:
 from environment  import generate_demand_map, generate_tasks, generate_uavs, generate_new_task
 from scheduler    import assign_tasks
 from utils        import print_mission_metrics
-try:
-    from proposed_method.visualization import plot_all, plot_reward_convergence
-except ImportError:
-    from visualization import plot_all, plot_reward_convergence
+# try:
+from proposed_method.visualization import plot_all, plot_reward_convergence
+# except ImportError:
+#     from visualization import plot_all, plot_reward_convergence
 
 from config import (
     NUM_TASKS,
@@ -52,6 +52,7 @@ except ImportError:
 
 
 SEED = 1
+UAV_SEED = 1
 random.seed(SEED)
 np.random.seed(SEED)
 
@@ -83,7 +84,7 @@ def setup_environment():
           f"(P1={p1}, P2={p2}, P3={p3})")
 
     print(f"\n[3] Generating {NUM_UAVS} heterogeneous UAVs...")
-    uavs = generate_uavs(num_uavs=NUM_UAVS, seed=SEED + 1)
+    uavs = generate_uavs(num_uavs=NUM_UAVS, seed=UAV_SEED)
     for uav in uavs:
         print(f"    {uav}")
 
@@ -284,6 +285,20 @@ def main(optimize=True, save_dir=None, prefix=""):
 
     demand_map, tasks, uavs = setup_environment()
 
+    print(f"Tasks generated: {len(tasks)}")
+    print(f"UAVs generated: {len(uavs)}")
+
+    print("First task:")
+    print(tasks[0])
+
+    print("First UAV:")
+    print(
+        uavs[0].x,
+        uavs[0].y,
+        uavs[0].max_hover_time,
+        uavs[0].max_energy
+    )
+
     # Run D-Module (partitioning output format compatibility)
     uavs, _unassigned = run_d_module(tasks, uavs)
 
@@ -301,7 +316,7 @@ def main(optimize=True, save_dir=None, prefix=""):
 
     # Calculate final metrics
     cr  = completion_rate(uavs, tasks)
-    hcr = high_priority_completion_rate(uavs)
+    hcr = high_priority_completion_rate(uavs,tasks)
     td  = total_travel_distance(uavs)
     eu  = energy_utilisation(uavs)
     cu  = compute_utilisation(uavs)

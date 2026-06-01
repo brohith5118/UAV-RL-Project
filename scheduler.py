@@ -139,7 +139,7 @@ def generalized_cost(uav, task, avg_tasks):
 
     load_ratio = (len(uav.assigned_tasks) / max(avg_tasks, 1))
 
-    load_penalty = load_ratio ** 2
+    load_penalty = load_ratio
 
     total_energy, total_hover, total_compute = (
         estimate_route_cost(
@@ -174,7 +174,7 @@ def generalized_cost(uav, task, avg_tasks):
 
     total_cost = (
         ALPHA * norm_distance
-        + 2.0 * load_penalty
+        + 10.0 * load_penalty
         + 2.0 * resource_penalty
         + lagrange_penalty
         - GAMMA * priority_reward
@@ -436,18 +436,6 @@ def assign_tasks(task_list, uavs):
         uavs,
         unassigned_tasks
     )
-
-    return uavs, unassigned_tasks
-
-
-# ----------------------------------------------------------
-# PARTITIONING SUMMARY
-# ----------------------------------------------------------
-
-def _print_partitioning_summary(
-    uavs,
-    unassigned
-):
 
     return uavs, unassigned_tasks
 

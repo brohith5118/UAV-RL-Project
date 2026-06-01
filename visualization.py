@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import numpy as np
 
-from config import MAP_WIDTH, MAP_HEIGHT, UAV_SPEED
+from config import MAP_WIDTH, MAP_HEIGHT, UAV_SPEED, GRID_RESOLUTION, ENERGY_PER_METER
 from utils  import estimate_finish_time, check_deadline
 
 
@@ -48,7 +48,7 @@ def plot_demand_map(ax, demand_map, tasks):
     im = ax.imshow(
         demand_map,
         origin='lower',
-        extent=[0, MAP_WIDTH, 0, MAP_HEIGHT],
+        extent=[0, MAP_WIDTH * GRID_RESOLUTION, 0, MAP_HEIGHT * GRID_RESOLUTION],
         cmap='YlOrRd',
         alpha=0.75,
         vmin=0, vmax=1,
@@ -74,8 +74,8 @@ def plot_demand_map(ax, demand_map, tasks):
     ax.set_title('Sensing Demand Map & Task Locations', fontsize=10)
     ax.set_xlabel('X (grid units)')
     ax.set_ylabel('Y (grid units)')
-    ax.set_xlim(0, MAP_WIDTH)
-    ax.set_ylim(0, MAP_HEIGHT)
+    ax.set_xlim(0, MAP_WIDTH * GRID_RESOLUTION)
+    ax.set_ylim(0, MAP_HEIGHT * GRID_RESOLUTION)
 
 
 # ----------------------------------------------------------
@@ -93,7 +93,7 @@ def plot_region_partition(ax, uavs, tasks, demand_map):
     ax.imshow(
         demand_map,
         origin='lower',
-        extent=[0, MAP_WIDTH, 0, MAP_HEIGHT],
+        extent=[0, MAP_WIDTH * GRID_RESOLUTION, 0, MAP_HEIGHT * GRID_RESOLUTION],
         cmap='Greys',
         alpha=0.25,
         vmin=0, vmax=1,
@@ -150,8 +150,8 @@ def plot_region_partition(ax, uavs, tasks, demand_map):
     ax.set_title('Capacity-Constrained Region Partition', fontsize=10)
     ax.set_xlabel('X (grid units)')
     ax.set_ylabel('Y (grid units)')
-    ax.set_xlim(0, MAP_WIDTH)
-    ax.set_ylim(0, MAP_HEIGHT)
+    ax.set_xlim(0, MAP_WIDTH * GRID_RESOLUTION)
+    ax.set_ylim(0, MAP_HEIGHT * GRID_RESOLUTION)
 
 
 # ----------------------------------------------------------
@@ -168,7 +168,7 @@ def plot_trajectories(ax, uavs, routes, demand_map):
     ax.imshow(
         demand_map,
         origin='lower',
-        extent=[0, MAP_WIDTH, 0, MAP_HEIGHT],
+        extent=[0, MAP_WIDTH * GRID_RESOLUTION, 0, MAP_HEIGHT * GRID_RESOLUTION],
         cmap='Greys',
         alpha=0.2,
         vmin=0, vmax=1,
@@ -242,8 +242,8 @@ def plot_trajectories(ax, uavs, routes, demand_map):
     ax.set_title('RL-Optimised Task Execution Trajectories (TSA)', fontsize=10)
     ax.set_xlabel('X (grid units)')
     ax.set_ylabel('Y (grid units)')
-    ax.set_xlim(0, MAP_WIDTH)
-    ax.set_ylim(0, MAP_HEIGHT)
+    ax.set_xlim(0, MAP_WIDTH * GRID_RESOLUTION)
+    ax.set_ylim(0, MAP_HEIGHT * GRID_RESOLUTION)
 
 
 # ----------------------------------------------------------

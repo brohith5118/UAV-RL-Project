@@ -15,7 +15,7 @@ if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
 import config
-import main as proposed_main
+from proposed_method import main as proposed_main
 
 
 # =========================================================

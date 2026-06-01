@@ -278,7 +278,7 @@ class QLearningTrajectoryPlanner:
                     feasible.append(idx)
 
             if not feasible:
-                feasible = [i for i in range(self.n) if i not in visited]
+                break;
 
             # Epsilon-greedy with expert rollout guidance
             if random.random() < epsilon:

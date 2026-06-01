@@ -169,8 +169,8 @@ def generate_tasks(num_tasks=NUM_TASKS,high_priority_ratio=HIGH_PRIORITY_RATIO,d
         # ω(g_i) workload vector
         # Energy cost includes travel component (proportional
         # to demand; exact distance added per UAV in scheduler)
-        energy_cost  = float(rng.uniform(5, 20))
-        hover_time   = float(rng.uniform(3, 10))
+        energy_cost  = float(rng.uniform(200, 500))
+        hover_time   = float(rng.uniform(40, 100))
         compute_load = (
             float(rng.uniform(5, 20)) if task_type >= 0 else 0.0
         )
@@ -221,8 +221,8 @@ def generate_uavs(num_uavs=NUM_UAVS, seed=99):
     for uid in range(num_uavs):
 
         # Depot near map edges (realistic launch pads)
-        x = float(rng.uniform(0, MAP_WIDTH))
-        y = float(rng.uniform(0, MAP_HEIGHT))
+        x = float(rng.uniform(0, MAP_WIDTH * GRID_RESOLUTION))
+        y = float(rng.uniform(0, MAP_HEIGHT * GRID_RESOLUTION))
 
         uav_type = type_pool[uid]
 
@@ -232,9 +232,9 @@ def generate_uavs(num_uavs=NUM_UAVS, seed=99):
         # Max energy  ∝  flight time (longer-endurance UAVs
         # carry more battery)
         max_energy = (
-            max_hover * ENERGY_PER_METER * UAV_SPEED * 0.01
+            max_hover * ENERGY_PER_METER * UAV_SPEED * 0.1
         )
-        max_energy = float(np.clip(max_energy, MIN_ENERGY, MAX_ENERGY * 2))
+        max_energy = float(np.clip(max_energy, MIN_ENERGY, MAX_ENERGY))
 
         # Max compute from Table 1
         max_compute = float(UAV_TYPE_MAX_COMPUTE[uav_type])
@@ -261,11 +261,11 @@ def generate_new_task(task_id, demand_map, seed=None):
     """Spawn a single new urgent task (paper Section 4.2)."""
     rng = np.random.default_rng(seed)
 
-    x = float(rng.uniform(0, MAP_WIDTH))
-    y = float(rng.uniform(0, MAP_HEIGHT))
+    x = float(rng.uniform(0, MAP_WIDTH * GRID_RESOLUTION))
+    y = float(rng.uniform(0, MAP_HEIGHT * GRID_RESOLUTION))
 
-    row = min(int(y), MAP_HEIGHT - 1)
-    col = min(int(x), MAP_WIDTH  - 1)
+    row = min(int(y/GRID_RESOLUTION), MAP_HEIGHT - 1)
+    col = min(int(x/GRID_RESOLUTION), MAP_WIDTH  - 1)
     score = float(demand_map[row, col])
 
     priority  = 1 if rng.random() < 0.5 else 2  # new tasks tend urgent

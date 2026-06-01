@@ -12,6 +12,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import numpy as np
+import pandas as pd
 
 # =========================================================
 # CREATE OUTPUT FOLDER AUTOMATICALLY
@@ -24,7 +25,7 @@ parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
-from config import MAP_WIDTH, MAP_HEIGHT, UAV_SPEED
+from config import MAP_WIDTH, MAP_HEIGHT, UAV_SPEED, GRID_RESOLUTION, ENERGY_PER_METER
 from utils  import estimate_finish_time, check_deadline
 from visualization import (
     UAV_COLORS, PRIORITY_COLORS, PRIORITY_LABELS, _uav_color,
@@ -89,6 +90,11 @@ def plot_all(uavs, routes, tasks, demand_map, prefix=""):
         uavs,
         routes,
         demand_map,
+        prefix=prefix
+    )
+
+    plot_task_details(
+        tasks,
         prefix=prefix
     )
 
@@ -221,6 +227,81 @@ def plot_reward_convergence(reward_logs: dict, prefix=""):
     path = get_save_path(f"{prefix}convergence.png")
 
     plt.savefig(path, dpi=150, bbox_inches='tight')
+    plt.close()
+
+    print(f"[SAVED] {path}")
+
+def plot_task_details(tasks, prefix=""):
+    """
+    Creates a task information image for presentation/report.
+    """
+
+    rows = []
+
+    for t in tasks:
+
+        rows.append([
+            t.task_id,
+            round(t.x, 2),
+            round(t.y, 2),
+            t.priority,
+            round(t.deadline, 2),
+            getattr(t, "task_type", "N/A"),
+            round(getattr(t, "energy_cost", 0), 2),
+            round(getattr(t, "hover_time", 0), 2),
+            round(getattr(t, "compute_load", 0), 2)
+        ])
+
+    columns = [
+        "Task ID",
+        "X",
+        "Y",
+        "Priority",
+        "Deadline",
+        "Type",
+        "Energy",
+        "Hover",
+        "Compute",
+    ]
+
+    df = pd.DataFrame(rows, columns=columns)
+
+    fig_height = max(6, len(df) * 0.35)
+
+    fig, ax = plt.subplots(
+        figsize=(16, fig_height)
+    )
+
+    ax.axis("off")
+
+    table = ax.table(
+        cellText=df.values,
+        colLabels=df.columns,
+        loc="center",
+        cellLoc="center"
+    )
+
+    table.auto_set_font_size(False)
+    table.set_fontsize(8)
+    table.scale(1.2, 1.4)
+
+    plt.title(
+        "Task Details Summary",
+        fontsize=16,
+        fontweight="bold",
+        pad=20
+    )
+
+    path = get_save_path(
+        f"{prefix}task_details.png"
+    )
+
+    plt.savefig(
+        path,
+        dpi=300,
+        bbox_inches="tight"
+    )
+
     plt.close()
 
     print(f"[SAVED] {path}")
